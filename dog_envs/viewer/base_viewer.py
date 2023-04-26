@@ -33,21 +33,28 @@ class BaseViewer(EnvViewer):
         elif key == glfw.KEY_SPACE:
             self.action = self.zero_action(self.env.action_space)
 
-    def observation(self):
-        obs = {}
-        obs['npc_site'] = self.env.sim.data.get_site_xpos("NPC")[:2]
-        obs['dog_site'] = self.env.sim.data.get_site_xpos("AI_dog")[:2]
-        return obs
     def run(self, once=False):
-        while True:
-            with ignore_mujoco_warnings():
-                self.action[3:5] = self.dog_policy.act(self.observation())
-                self.env.step(self.action)
-            self.add_overlay(const.GRID_TOPRIGHT, "Reset env; (current seed: {})".format(self.seed), "N - next / P - previous ")
-            self.add_overlay(const.GRID_TOPRIGHT, "Apply action", "A (-0.05) / Z (+0.05)")
-            self.add_overlay(const.GRID_TOPRIGHT, "on action index %d out %d" % (self.action_mod_index, self.num_action), "J / K")
-            self.add_overlay(const.GRID_BOTTOMRIGHT, "Reset took", "%.2f sec." % (sum(self.elapsed) / len(self.elapsed)))
-            self.add_overlay(const.GRID_BOTTOMRIGHT, "Action", str(self.action))
-            self.render()
-            if once:
-                return
+        total_num_episodes = int(5e3)
+        obs, reward, done, info = self.env.step(self.action)
+        for episode in range(total_num_episodes):
+            self.seed[0] += 1
+            self.env.seed(self.seed)
+            self.env_reset()
+            self.action = self.zero_action(self.env.action_space)
+            print("Run episode:", episode)
+
+            done = False
+            while not done:
+                with ignore_mujoco_warnings():
+                    self.action[3:5] = self.dog_policy.act(obs)
+                    obs, reward, done, info = self.env.step(self.action)
+                    self.dog_policy.add_reward(reward)
+                self.add_overlay(const.GRID_TOPRIGHT, "Reset env; (current seed: {})".format(self.seed), "N - next / P - previous ")
+                self.add_overlay(const.GRID_TOPRIGHT, "Apply action", "A (-0.05) / Z (+0.05)")
+                self.add_overlay(const.GRID_TOPRIGHT, "on action index %d out %d" % (self.action_mod_index, self.num_action), "J / K")
+                self.add_overlay(const.GRID_BOTTOMRIGHT, "Reset took", "%.2f sec." % (sum(self.elapsed) / len(self.elapsed)))
+                self.add_overlay(const.GRID_BOTTOMRIGHT, "Action", str(self.action))
+                self.render()
+                if once:
+                    return
+            self.dog_policy.update_dog()

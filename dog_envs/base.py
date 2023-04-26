@@ -22,4 +22,5 @@ class Base(Env):
                  deterministic_mode=False):
         super().__init__(get_sim = get_sim,
                          get_reward = get_reward,
+                         get_diverged = get_diverged,
                          horizon = horizon)
