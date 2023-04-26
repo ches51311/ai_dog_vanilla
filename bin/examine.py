@@ -2,11 +2,12 @@
 import click
 import logging
 
-from mujoco_worldgen.util.envs import examine_env
+from mujoco_worldgen.util.envs import examine_env, load_env
 from mujoco_worldgen.util.path import worldgen_path
 from mujoco_worldgen.util.parse_arguments import parse_arguments
 
 from dog_envs.viewer.base_viewer import BaseViewer
+from dog_policy.load_policy import load_policy
 
 logger = logging.getLogger(__name__)
 
@@ -28,9 +29,13 @@ def main(argv):
     env_names, env_kwargs = parse_arguments(argv)
     assert len(env_names) == 1, 'You must provide exactly 1 environment to examine.'
     env_name = env_names[0]
-    examine_env(env_name, env_kwargs,
-                core_dir=worldgen_path(), envs_dir='examples', xmls_dir='xmls',
-                env_viewer=BaseViewer)
+    env = load_env(env_name, core_dir=worldgen_path(),
+                   envs_dir='examples', xmls_dir='xmls',
+                   **env_kwargs)
+    env.reset()  # generate action and observation spaces
+    policy = load_policy(env)
+    viewer = BaseViewer(env, policy)
+    viewer.run()
 
     print(main.__doc__)
 

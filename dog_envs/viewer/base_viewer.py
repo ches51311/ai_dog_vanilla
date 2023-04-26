@@ -3,8 +3,9 @@ from mujoco_py import const, ignore_mujoco_warnings
 import glfw
 
 class BaseViewer(EnvViewer):
-    def __init__(self, env):
+    def __init__(self, env, policy):
         super().__init__(env = env)
+        self.dog_policy = policy
 
     def key_callback(self, window, key, scancode, action, mods):
         super().key_callback(window, key, scancode, action, mods)
@@ -32,22 +33,15 @@ class BaseViewer(EnvViewer):
         elif key == glfw.KEY_SPACE:
             self.action = self.zero_action(self.env.action_space)
 
-    def sample_action(self):
-        npc_site = self.env.sim.data.get_site_xpos("NPC")[:2]
-        dog_site = self.env.sim.data.get_site_xpos("AI_dog")[:2]
-        cal = (npc_site - dog_site)
-        if sum(abs(cal)) < 0.5:
-            self.action[3] = 0
-            self.action[4] = 0
-        else:
-            cal = cal*0.05/max(abs(cal))
-            self.action[3] = cal[0]
-            self.action[4] = cal[1]
-
+    def observation(self):
+        obs = {}
+        obs['npc_site'] = self.env.sim.data.get_site_xpos("NPC")[:2]
+        obs['dog_site'] = self.env.sim.data.get_site_xpos("AI_dog")[:2]
+        return obs
     def run(self, once=False):
         while True:
             with ignore_mujoco_warnings():
-                self.sample_action()
+                self.action[3:5] = self.dog_policy.act(self.observation())
                 self.env.step(self.action)
             self.add_overlay(const.GRID_TOPRIGHT, "Reset env; (current seed: {})".format(self.seed), "N - next / P - previous ")
             self.add_overlay(const.GRID_TOPRIGHT, "Apply action", "A (-0.05) / Z (+0.05)")
