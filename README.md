@@ -15,6 +15,7 @@ conda create --name env_mj python=3.8
 conda activate env_mj
 git clone https://github.com/ches51311/mujoco-worldgen.git
 cd mujoco-worldgen
+pip install wheel
 pip install -r requirements.txt
 pip install -e .
 cd -
