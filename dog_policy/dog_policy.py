@@ -6,7 +6,7 @@ from torch.distributions.normal import Normal
 from typing import Tuple
 import torch.onnx
 
-torch.manual_seed(0)
+torch.manual_seed(3)
 
 # class Policy_Network(nn.Module):
 #     """Parametrized Policy Network."""
@@ -141,7 +141,6 @@ class REINFORCE:
 
         self.probs = []  # Stores probability values of the sampled action
         self.rewards = []  # Stores the corresponding rewards
-        self.losses = []
 
         self.net = Policy_Network(obs_space_dims, action_space_dims)
         self.optimizer = torch.optim.AdamW(self.net.parameters(), lr=self.learning_rate)
@@ -169,66 +168,33 @@ class REINFORCE:
         self.probs.append(prob)
 
         return action
-    def update(self, reward):
-        self.rewards.append(reward)
-        if len(self.rewards) > 1:
-            actual_reward = self.rewards[-2] - self.rewards[-1]
-            delta = torch.tensor(actual_reward)
-            loss = self.probs[-1].mean() * delta * (-1)
-            self.losses.append(loss.detach().numpy())
-            # if len(self.rewards) % 10 == 0:
-            #     print("loss:", loss)
+
+    def update(self):
+        """Updates the policy network's weights."""
+        # self.rewards is storing distance
+        actual_rewards = []
+        for i in range(len(self.rewards)-1):
+            actual_rewards.append((self.rewards[i] - self.rewards[i+1])*1000/len(self.rewards))
+        # print("actual rewards:", actual_rewards)
+        self.actual_reward_sum = sum(actual_rewards)
+        deltas = torch.tensor(actual_rewards)
+
+        loss = 0
+        # minimize -1 * prob * reward obtained
+        for log_prob, delta in zip(self.probs, deltas):
+            loss += log_prob.mean() * delta * (-1)
+        if type(loss) == torch.Tensor:
+            self.loss = loss.item()
+            # Update the policy network
             self.optimizer.zero_grad()
             loss.backward()
             self.optimizer.step()
-    def clean(self):
+        else:
+            self.loss = loss
+
+        # Empty / zero out all episode-centric/related variables
         self.probs = []
         self.rewards = []
-        self.losses = []
-    # def update(self):
-    #     """Updates the policy network's weights."""
-    #     if len(self.rewards) <= 1:
-    #         return
-    #     loss = 0
-    #     for log_prob in self.probs:
-    #         loss += log_prob.mean()
-    #     loss /= len(self.probs)
-    #     loss = abs(loss) + self.eps
-    #     loss *= self.rewards[-1] * (-1)
-    #     self.loss = loss.item()
-    #     self.optimizer.zero_grad()
-    #     loss.backward()
-    #     self.optimizer.step()
-
-    #     # Empty / zero out all episode-centric/related variables
-    #     self.probs = []
-    #     self.rewards = []
-
-    # def update(self):
-    #     """Updates the policy network's weights."""
-    #     # self.rewards is storing distance
-    #     actual_rewards = []
-    #     for i in range(len(self.rewards)-1):
-    #         actual_rewards.append((self.rewards[i] - self.rewards[i-1])*1000/len(self.rewards))
-    #     # print("actual rewards:", actual_rewards)
-    #     deltas = torch.tensor(actual_rewards)
-
-    #     loss = 0
-    #     # minimize -1 * prob * reward obtained
-    #     for log_prob, delta in zip(self.probs, deltas):
-    #         loss += log_prob.mean() * delta * (-1)
-    #     if type(loss) == torch.Tensor:
-    #         self.loss = loss.item()
-    #         # Update the policy network
-    #         self.optimizer.zero_grad()
-    #         loss.backward()
-    #         self.optimizer.step()
-    #     else:
-    #         self.loss = loss
-
-    #     # Empty / zero out all episode-centric/related variables
-    #     self.probs = []
-    #     self.rewards = []
     def save(self, input_shape):
         x = torch.randn(input_shape, requires_grad=True)
         torch.onnx.export(self.net,               # model being run
@@ -248,10 +214,6 @@ class DogPolicy:
         self.dog = REINFORCE(4, self.ac_space.shape[0]-4)
     def add_reward(self, reward):
         self.dog.rewards.append(reward)
-    def update(self, reward):
-        self.dog.update(reward)
-    def clean_reward(self):
-        self.dog.clean()
     def update_dog(self):
         self.dog.update()
 

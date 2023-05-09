@@ -19,20 +19,6 @@ def get_diverged(sim):
         return True, 6.
     return False, 0.
 
-# def get_reward(sim):
-#     return -0.3
-
-# def get_diverged(sim):
-#     npc_site = sim.data.get_site_xpos("NPC")
-#     dog_site = sim.data.get_site_xpos("AI_dog")
-#     distance = pow(sum(pow((npc_site - dog_site)[:2], 2)), 1/2)
-#     if distance < 0.3:
-#         return True, 1.
-#     if distance > 6:
-#         return True, -1.
-#     return False, 0.
-
-
 
 def get_sim(seed):
     world_params = WorldParams(size=(4., 4., 2.5))
