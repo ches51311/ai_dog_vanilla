@@ -6,22 +6,31 @@ from dog_envs.base import Base
 def get_reward(sim):
     npc_site = sim.data.get_site_xpos("NPC")
     dog_site = sim.data.get_site_xpos("AI_dog")
-    cal = sum(pow((npc_site - dog_site)[:2], 2))
-    if cal < 3:
-        return 1./(cal+0.1)
-    else:
-        return -(cal-3)*15.
+    distance = pow(sum(pow((npc_site - dog_site)[:2], 2)), 1/2)
+    return distance
 
 def get_diverged(sim):
     npc_site = sim.data.get_site_xpos("NPC")
     dog_site = sim.data.get_site_xpos("AI_dog")
-    cal = sum(pow((npc_site - dog_site)[:2], 2))
-    if cal < 0.1:
-        return True, 100.
-    if cal > 7:
-        return True, -100.
+    distance = pow(sum(pow((npc_site - dog_site)[:2], 2)), 1/2)
+    if distance < 0.3:
+        return True, 0.
+    if distance > 6:
+        return True, 6.
     return False, 0.
 
+# def get_reward(sim):
+#     return -0.3
+
+# def get_diverged(sim):
+#     npc_site = sim.data.get_site_xpos("NPC")
+#     dog_site = sim.data.get_site_xpos("AI_dog")
+#     distance = pow(sum(pow((npc_site - dog_site)[:2], 2)), 1/2)
+#     if distance < 0.3:
+#         return True, 1.
+#     if distance > 6:
+#         return True, -1.
+#     return False, 0.
 
 
 
