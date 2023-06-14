@@ -5,6 +5,7 @@ import torch.nn as nn
 from torch.distributions.normal import Normal
 from typing import Tuple
 import torch.onnx
+import os
 
 torch.manual_seed(3)
 
@@ -142,7 +143,11 @@ class REINFORCE:
         self.probs = []  # Stores probability values of the sampled action
         self.rewards = []  # Stores the corresponding rewards
 
-        self.net = Policy_Network(obs_space_dims, action_space_dims)
+        if os.path.exists("dog.pt"):
+            self.net = torch.load("dog.pt")
+        else:
+            self.net = Policy_Network(obs_space_dims, action_space_dims)
+
         self.optimizer = torch.optim.AdamW(self.net.parameters(), lr=self.learning_rate)
 
     def sample_action(self, state: np.ndarray) -> float:
@@ -202,6 +207,7 @@ class REINFORCE:
                         "dog.onnx",   # where to save the model (can be a file or file-like object)
                         export_params=True,        # store the trained parameter weights inside the model file
                         )
+        torch.save(self.net, "dog.pt")
 
 
 
