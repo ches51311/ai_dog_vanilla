@@ -1,44 +1,37 @@
 #!/usr/bin/env python3
-import click
 import logging
 
-from mujoco_worldgen.util.envs import examine_env, load_env
-from mujoco_worldgen.util.path import worldgen_path
-from mujoco_worldgen.util.parse_arguments import parse_arguments
+# from mujoco_worldgen.util.envs import examine_env, load_env
+# from mujoco_worldgen.util.path import worldgen_path
+# from mujoco_worldgen.util.parse_arguments import parse_arguments
 
+from dog_policy.dog_policy import DogPolicy
 from dog_envs.viewer.base_viewer import BaseViewer
-from dog_policy.load_policy import load_policy
+
+from examples import ai_dog
+
+import argparse
 
 logger = logging.getLogger(__name__)
 
 
 # For more detailed on argv information, please have a look on
 # docstring below.
-@click.command()
-@click.argument('argv', nargs=-1, required=False)
-def main(argv):
-    '''
-    examine.py is used to display environments
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--save_model", default = "dog.pt")
+    parser.add_argument("--load_model", default = "dog.pt")
+    parser.add_argument("--env_name", default = "ai_dog")
+    parser.add_argument("--use_cuda", default = True)
+    args = vars(parser.parse_args())
 
-    Example uses:
-        bin/examine.py simple_particle
-        bin/examine.py examples/particle_gather.py
-        bin/examine.py particle_gather n_food=5 floorsize=5
-        bin/examine.py example_env_examine.jsonnet
-    '''
-    env_names, env_kwargs = parse_arguments(argv)
-    assert len(env_names) == 1, 'You must provide exactly 1 environment to examine.'
-    env_name = env_names[0]
-    env = load_env(env_name, core_dir=worldgen_path(),
-                   envs_dir='examples', xmls_dir='xmls',
-                   **env_kwargs)
-    env.reset()  # generate action and observation spaces
-    policy = load_policy(env)
-    viewer = BaseViewer(env, policy)
-    viewer.run()
-
-    print(main.__doc__)
-
+    assert(args["env_name"] == "ai_dog" and "env not match")
+    env = ai_dog.make_env()
+    env.reset()
+    dog_policy = DogPolicy(4, 2, args["load_model"], args["use_cuda"])
+    viewer = BaseViewer(env, dog_policy)
+    viewer.run(5e2)
+    dog_policy.save(args["save_model"])
 
 if __name__ == '__main__':
     logging.getLogger('').handlers = []

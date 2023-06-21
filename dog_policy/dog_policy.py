@@ -9,67 +9,7 @@ import os
 
 torch.manual_seed(3)
 
-# class Policy_Network(nn.Module):
-#     """Parametrized Policy Network."""
-
-#     def __init__(self, obs_space_dims: int, action_space_dims: int):
-#         """Initializes a neural network that estimates the mean and standard deviation
-#          of a normal distribution from which an action is sampled from.
-
-#         Args:
-#             obs_space_dims: Dimension of the observation space
-#             action_space_dims: Dimension of the action space
-#         """
-#         super().__init__()
-
-#         hidden_space1 = 32  # Nothing special with 16, feel free to change
-#         hidden_space2 = 64  # Nothing special with 32, feel free to change
-
-#         # Shared Network
-#         self.shared_net1 = nn.Sequential(
-#             nn.Linear(obs_space_dims, hidden_space1),
-#             nn.Tanh(),
-#         )
-
-#         self.shared_net2 = nn.Sequential(
-#             nn.Linear(hidden_space1, hidden_space2),
-#             nn.Tanh(),
-#         )
-
-
-#         # Policy Mean specific Linear Layer
-#         self.policy_mean_net = nn.Sequential(
-#             nn.Linear(hidden_space2, action_space_dims)
-#         )
-
-#         # Policy Std Dev specific Linear Layer
-#         self.policy_stddev_net = nn.Sequential(
-#             nn.Linear(hidden_space2, action_space_dims)
-#         )
-
-#     def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-#         """Conditioned on the observation, returns the mean and standard deviation
-#          of a normal distribution from which an action is sampled from.
-
-#         Args:
-#             x: Observation from the environment
-
-#         Returns:
-#             action_means: predicted mean of the normal distribution
-#             action_stddevs: predicted standard deviation of the normal distribution
-#         """
-#         shared_features1_1 = self.shared_net1(x.float())
-#         shared_features1_2 = self.shared_net1(x.float())
-#         sub_feature = torch.sub(shared_features1_1, shared_features1_2)
-#         shared_features2 = self.shared_net2(sub_feature)
-#         action_means = self.policy_mean_net(shared_features2)
-#         action_stddevs = torch.log(
-#             1 + torch.exp(self.policy_stddev_net(shared_features2))
-#         )
-
-#         return action_means, action_stddevs
-
-class Policy_Network(nn.Module):
+class DogNetwork(nn.Module):
     """Parametrized Policy Network."""
 
     def __init__(self, obs_space_dims: int, action_space_dims: int):
@@ -123,18 +63,8 @@ class Policy_Network(nn.Module):
 
         return action_means, action_stddevs
 
-class REINFORCE:
-    """REINFORCE algorithm."""
-
-    def __init__(self, obs_space_dims: int, action_space_dims: int):
-        """Initializes an agent that learns a policy via REINFORCE algorithm [1]
-        to solve the task at hand (Inverted Pendulum v4).
-
-        Args:
-            obs_space_dims: Dimension of the observation space
-            action_space_dims: Dimension of the action space
-        """
-
+class DogPolicy:
+    def __init__(self, dog_obs_dims: int, dog_action_dims: int, model_path = "", use_cuda = False):
         # Hyperparameters
         self.learning_rate = 1e-4  # Learning rate for policy optimization
         self.gamma = 0.8  # Discount factor
@@ -143,24 +73,28 @@ class REINFORCE:
         self.probs = []  # Stores probability values of the sampled action
         self.rewards = []  # Stores the corresponding rewards
 
-        if os.path.exists("dog.pt"):
-            self.net = torch.load("dog.pt")
+        if os.path.exists(model_path):
+            self.net = torch.load(model_path)
         else:
-            self.net = Policy_Network(obs_space_dims, action_space_dims)
-
+            self.net = DogNetwork(dog_obs_dims, dog_action_dims)
+        self.use_cuda = use_cuda
+        if self.use_cuda == True:
+            self.net.to('cuda')
         self.optimizer = torch.optim.AdamW(self.net.parameters(), lr=self.learning_rate)
 
-    def sample_action(self, state: np.ndarray) -> float:
+    def action(self, dog_obs: np.ndarray) -> float:
         """Returns an action, conditioned on the policy and observation.
 
         Args:
-            state: Observation from the environment
+            dog_obs: dog's observation from the environment
 
         Returns:
-            action: Action to be performed
+            dog_action: dog's action to be performed
         """
-        state = torch.tensor(np.array([state]))
-        action_means, action_stddevs = self.net(state)
+        dog_obs = torch.tensor(np.array([dog_obs]))
+        if self.use_cuda == True:
+            dog_obs = dog_obs.to('cuda')
+        action_means, action_stddevs = self.net(dog_obs)
 
         # create a normal distribution from the predicted
         #   mean and standard deviation and sample an action
@@ -168,11 +102,14 @@ class REINFORCE:
         action = distrib.sample()
         prob = distrib.log_prob(action)
 
-        action = action.numpy()
+        action = action.to('cpu').numpy()
 
         self.probs.append(prob)
 
         return action
+
+    def add_reward(self, reward):
+        self.rewards.append(reward)
 
     def update(self):
         """Updates the policy network's weights."""
@@ -200,30 +137,7 @@ class REINFORCE:
         # Empty / zero out all episode-centric/related variables
         self.probs = []
         self.rewards = []
-    def save(self, input_shape):
-        x = torch.randn(input_shape, requires_grad=True)
-        torch.onnx.export(self.net,               # model being run
-                          x,
-                        "dog.onnx",   # where to save the model (can be a file or file-like object)
-                        export_params=True,        # store the trained parameter weights inside the model file
-                        )
-        torch.save(self.net, "dog.pt")
 
-
-
-class DogPolicy:
-    def __init__(self, ob_space, ac_space):
-        self.ob_space = ob_space
-        self.ac_space = ac_space
-        #TODO: self.ob_space.shape[0] is 16, but only need xy of npc & dog
-        #TODO: -4 is to remove npc's space & dog's rotate
-        self.dog = REINFORCE(4, self.ac_space.shape[0]-4)
-    def add_reward(self, reward):
-        self.dog.rewards.append(reward)
-    def update_dog(self):
-        self.dog.update()
-
-    def act(self, obs):
-        return self.dog.sample_action(obs)
-    def save(self):
-        self.dog.save(4)
+    def save(self, model_path = ""):
+        if model_path != "":
+            torch.save(self.net, model_path)

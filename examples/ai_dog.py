@@ -25,15 +25,15 @@ def get_sim(seed):
     builder = WorldBuilder(world_params, seed)
     floor = Floor()
     builder.append(floor)
-    obj = ObjFromXML("particle_hinge")
-    obj2 = ObjFromXML("particle_hinge_dog")
-    floor.append(obj)
-    floor.append(obj2)
-    obj.mark("NPC")
-    obj2.mark("AI_dog")
-    # floor.mark("target", (.5, .5, 0.05))
+    npc = ObjFromXML("particle_hinge")
+    dog = ObjFromXML("particle_hinge_dog")
+    floor.append(npc)
+    floor.append(dog)
+    npc.mark("NPC")
+    dog.mark("AI_dog")
     return builder.get_sim()
 
 
 def make_env():
-    return Base(get_sim=get_sim, get_reward=get_reward, get_diverged = get_diverged, horizon=1000)
+    return Base(get_sim = get_sim, get_reward = get_reward,
+                get_diverged = get_diverged, horizon=1000)
