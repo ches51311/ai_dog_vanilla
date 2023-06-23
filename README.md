@@ -21,5 +21,5 @@ pip install -e .
 cd -
 pip install -r requirements.txt
 pip install -e .
-./bin/examine.py examples/ai_dog.py
+./bin/examine.py
 ```
