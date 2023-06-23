@@ -1,35 +1,29 @@
 #!/usr/bin/env python3
 import logging
-
-# from mujoco_worldgen.util.envs import examine_env, load_env
-# from mujoco_worldgen.util.path import worldgen_path
-# from mujoco_worldgen.util.parse_arguments import parse_arguments
-
-from dog_policy.dog_policy import DogPolicy
-from dog_envs.viewer.base_viewer import BaseViewer
-
-from examples import ai_dog
-
 import argparse
+
+from policy.dog_policy import DogPolicy
+from policy.npc_policy import NPCPolicy
+from envs.AI_dog_env import AIDogEnv
+from viewers.AI_dog_viewer import AIDogViewer
 
 logger = logging.getLogger(__name__)
 
-
-# For more detailed on argv information, please have a look on
-# docstring below.
-def main():
+def parse_arg():
     parser = argparse.ArgumentParser()
     parser.add_argument("--save_model", default = "dog.pt")
     parser.add_argument("--load_model", default = "dog.pt")
-    parser.add_argument("--env_name", default = "ai_dog")
     parser.add_argument("--use_cuda", default = True)
     args = vars(parser.parse_args())
+    return args
 
-    assert(args["env_name"] == "ai_dog" and "env not match")
-    env = ai_dog.make_env()
+def main():
+    args = parse_arg()
+    env = AIDogEnv()
     env.reset()
     dog_policy = DogPolicy(4, 2, args["load_model"], args["use_cuda"])
-    viewer = BaseViewer(env, dog_policy)
+    npc_policy = NPCPolicy()
+    viewer = AIDogViewer(env, dog_policy, npc_policy)
     viewer.run(5e2)
     dog_policy.save(args["save_model"])
 

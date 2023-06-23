@@ -65,6 +65,9 @@ class DogNetwork(nn.Module):
 
 class DogPolicy:
     def __init__(self, dog_obs_dims: int, dog_action_dims: int, model_path = "", use_cuda = False):
+        # dog's hp & mp
+        self.hp = 100
+        self.mp = 100
         # Hyperparameters
         self.learning_rate = 1e-4  # Learning rate for policy optimization
         self.gamma = 0.8  # Discount factor
@@ -73,10 +76,9 @@ class DogPolicy:
         self.probs = []  # Stores probability values of the sampled action
         self.rewards = []  # Stores the corresponding rewards
 
+        self.net = DogNetwork(dog_obs_dims, dog_action_dims)
         if os.path.exists(model_path):
-            self.net = torch.load(model_path)
-        else:
-            self.net = DogNetwork(dog_obs_dims, dog_action_dims)
+            self.net.load_state_dict(torch.load(model_path))
         self.use_cuda = use_cuda
         if self.use_cuda == True:
             self.net.to('cuda')
@@ -103,13 +105,27 @@ class DogPolicy:
         prob = distrib.log_prob(action)
 
         action = action.to('cpu').numpy()
+        action = np.concatenate([action, np.zeros(1)])
 
         self.probs.append(prob)
 
         return action
 
-    def add_reward(self, reward):
-        self.rewards.append(reward)
+    def set_reward(self, sim):
+        npc_site = sim.data.get_site_xpos("NPC")
+        dog_site = sim.data.get_site_xpos("AI_dog")
+        distance = pow(sum(pow((npc_site - dog_site)[:2], 2)), 1/2)
+        self.diverged = False
+        if distance < 0.3:
+            self.diverged = True
+            distance = 0.
+        if distance > 6:
+            self.diverged = True
+            distance = 6.
+        self.rewards.append(distance)
+    
+    def get_diverged(self):
+        return self.diverged
 
     def update(self):
         """Updates the policy network's weights."""
@@ -140,4 +156,4 @@ class DogPolicy:
 
     def save(self, model_path = ""):
         if model_path != "":
-            torch.save(self.net, model_path)
+            torch.save(self.net.state_dict(), model_path)
