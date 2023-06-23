@@ -6,6 +6,7 @@ from torch.distributions.normal import Normal
 from typing import Tuple
 import torch.onnx
 import os
+import math
 
 torch.manual_seed(3)
 
@@ -65,9 +66,10 @@ class DogNetwork(nn.Module):
 
 class DogPolicy:
     def __init__(self, dog_obs_dims: int, dog_action_dims: int, model_path = "", use_cuda = False):
-        # dog's hp & mp
-        self.hp = 100
-        self.mp = 100
+        # dog's hungry point & mood point
+        self.hp = 100.
+        self.mp = 100.
+        self.life = 0.
         # Hyperparameters
         self.learning_rate = 1e-4  # Learning rate for policy optimization
         self.gamma = 0.8  # Discount factor
@@ -83,51 +85,19 @@ class DogPolicy:
         if self.use_cuda == True:
             self.net.to('cuda')
         self.optimizer = torch.optim.AdamW(self.net.parameters(), lr=self.learning_rate)
-
-    def action(self, dog_obs: np.ndarray) -> float:
-        """Returns an action, conditioned on the policy and observation.
-
-        Args:
-            dog_obs: dog's observation from the environment
-
-        Returns:
-            dog_action: dog's action to be performed
-        """
-        dog_obs = torch.tensor(np.array([dog_obs]))
-        if self.use_cuda == True:
-            dog_obs = dog_obs.to('cuda')
-        action_means, action_stddevs = self.net(dog_obs)
-
-        # create a normal distribution from the predicted
-        #   mean and standard deviation and sample an action
-        distrib = Normal(action_means[0] + self.eps, action_stddevs[0] + self.eps)
-        action = distrib.sample()
-        prob = distrib.log_prob(action)
-
-        action = action.to('cpu').numpy()
-        action = np.concatenate([action, np.zeros(1)])
-
-        self.probs.append(prob)
-
-        return action
-
-    def set_reward(self, sim):
-        npc_site = sim.data.get_site_xpos("NPC")
-        dog_site = sim.data.get_site_xpos("AI_dog")
-        distance = pow(sum(pow((npc_site - dog_site)[:2], 2)), 1/2)
-        self.diverged = False
-        if distance < 0.3:
-            self.diverged = True
-            distance = 0.
-        if distance > 6:
-            self.diverged = True
-            distance = 6.
-        self.rewards.append(distance)
     
-    def get_diverged(self):
-        return self.diverged
+    def reborn(self):
+        self.hp = 100.
+        self.mp = 100.
+        self.life = 0.
+        self.rewards.append(-100.)
+    
+    def death(self):
+        return self.hp < 0
 
-    def update(self):
+    def update_weight(self):
+        # conditionally update weight
+
         """Updates the policy network's weights."""
         # self.rewards is storing distance
         actual_rewards = []
@@ -153,6 +123,57 @@ class DogPolicy:
         # Empty / zero out all episode-centric/related variables
         self.probs = []
         self.rewards = []
+
+
+    def my_turn(self, obs):
+        # 1. update hp & mp
+        distance = math.dist(obs["man_site"][:2], obs["dog_site"][:2])
+        # man feed add hp
+        if distance < 0.3 and obs["man_action"]["feed"] == True:
+            self.hp += 20
+        # man touch add mp
+        if distance < 0.3 and obs["man_action"]["touch"] == True:
+            self.mp += 20
+        # man near add mp
+        if distance < 0.3:
+            self.mp += 0.001
+        # dog action influence hp/mp
+        dog_momentum = pow(pow(obs["dog_action"]["move"][0], 2) + \
+                           pow(obs["dog_action"]["move"][1], 2), 1/2) + obs["dog_action"]["move"][2]
+        self.hp -= dog_momentum * 0.01
+        self.hp -= obs["dog_action"]["bark"] * 0.01
+        self.hp -= obs["dog_action"]["shake"] * 0.01
+        self.life += 1
+        self.hp -= 0.001
+        self.mp -= 0.01
+
+        # 2. set reward
+        reward = (abs(self.hp - 80) + abs(self.mp - 80)) * -1 + self.life * 0.001
+        self.rewards.append(reward)
+
+        # 3. update weight
+        # self.update_weight()
+        # 4. do action
+        action = {}
+        # dog_obs = torch.tensor(np.array([dog_obs]))
+        # if self.use_cuda == True:
+        #     dog_obs = dog_obs.to('cuda')
+        # move_means, move_stddevs = self.net(dog_obs)
+
+        # # create a normal distribution from the predicted
+        # #   mean and standard deviation and sample an action
+        # distrib = Normal(move_means[0] + self.eps, move_stddevs[0] + self.eps)
+        # move = distrib.sample()
+        # prob = distrib.log_prob(move)
+        # self.probs.append(prob)
+
+        # move = move.to('cpu').numpy()
+        # action["move"] = np.concatenate([move, np.zeros(1)])
+        action["move"] = np.random.uniform(-0.5,0.5,3)
+        action["bark"] = np.random.uniform(0,0.5,1)
+        action["shake"] = np.random.uniform(0,0.5,1)
+
+        obs["dog_action"] = action
 
     def save(self, model_path = ""):
         if model_path != "":
