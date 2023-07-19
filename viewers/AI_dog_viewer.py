@@ -87,6 +87,7 @@ class AIDogViewer(EnvViewer):
                     self.env.my_turn(self.obs)
                     self.show_info()
             self.dog_policy.reborn()
+            self.env_reset()
 
             # self.dog_policy.update()
             # print("actual_reward_sum:", self.dog_policy.actual_reward_sum)

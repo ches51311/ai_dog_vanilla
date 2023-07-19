@@ -11,58 +11,51 @@ import math
 torch.manual_seed(3)
 
 class DogNetwork(nn.Module):
-    """Parametrized Policy Network."""
+    def __init__(self, use_cuda = False):
+        super(DogNetwork,self).__init__()
+        self.use_cuda = use_cuda
+        self.t1 = nn.Transformer(d_model = 3, nhead=1, num_encoder_layers = 1, num_decoder_layers = 1, dim_feedforward = 256)
+        self.t2 = nn.Transformer(d_model = 1, nhead=1, num_encoder_layers = 1, num_decoder_layers = 1, dim_feedforward = 256)
+        self.t3 = nn.Transformer(d_model = 8, nhead=1, num_encoder_layers = 1, num_decoder_layers = 1, dim_feedforward = 256)
+        self.l1 = nn.Linear(8, 3)
+        self.l2 = nn.Linear(8, 1)
 
-    def __init__(self, obs_space_dims: int, action_space_dims: int):
-        """Initializes a neural network that estimates the mean and standard deviation
-         of a normal distribution from which an action is sampled from.
+        if use_cuda:
+            self.t1 = self.t1.cuda()
+            self.t2 = self.t2.cuda()
+            self.t3 = self.t3.cuda()
+            self.l1 = self.l1.cuda()
+            self.l2 = self.l2.cuda()
 
-        Args:
-            obs_space_dims: Dimension of the observation space
-            action_space_dims: Dimension of the action space
-        """
-        super().__init__()
+    def forward(self, dog_site, man_site, hp, mp) -> Tuple[torch.Tensor, torch.Tensor]:
+        dog_site = torch.Tensor(dog_site).reshape([1,1,3])
+        man_site = torch.Tensor(man_site).reshape([1,1,3])
+        hp = torch.Tensor([hp]).reshape([1,1,1])
+        mp = torch.Tensor([mp]).reshape([1,1,1])
+        if self.use_cuda:
+            dog_site = dog_site.cuda()
+            man_site = man_site.cuda()
+            hp = hp.cuda()
+            mp = mp.cuda()
 
-        hidden_space1 = 32  # Nothing special with 16, feel free to change
-        hidden_space2 = 64  # Nothing special with 32, feel free to change
+        dog_site_t = self.t1(dog_site, dog_site)
+        man_site_t = self.t1(man_site, man_site)
+        hp_t = self.t2(hp, hp)
+        mp_t = self.t2(mp, mp)
+        concat = torch.cat([dog_site_t, man_site_t, hp_t, mp_t], dim=2)
+        q = concat
+        result_move = self.t3(q,q).reshape([1,8])
+        result_move = self.l1(result_move).reshape([3]).cpu().detach().numpy()
+        result_bark = self.t3(q,q).reshape([1,8])
+        result_bark = self.l2(result_bark).reshape([1]).cpu().detach().numpy()
+        result_shake = self.t3(q,q).reshape([1,8])
+        result_shake = self.l2(result_shake).reshape([1]).cpu().detach().numpy()
 
-        # Shared Network
-        self.shared_net = nn.Sequential(
-            nn.Linear(obs_space_dims, hidden_space1),
-            nn.Tanh(),
-            nn.Linear(hidden_space1, hidden_space2),
-            nn.Tanh(),
-        )
+        return {"move": result_move, "bark": result_bark, "shake": result_shake}
 
-        # Policy Mean specific Linear Layer
-        self.policy_mean_net = nn.Sequential(
-            nn.Linear(hidden_space2, action_space_dims)
-        )
+    def backward(self):
+        pass
 
-        # Policy Std Dev specific Linear Layer
-        self.policy_stddev_net = nn.Sequential(
-            nn.Linear(hidden_space2, action_space_dims)
-        )
-
-    def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-        """Conditioned on the observation, returns the mean and standard deviation
-         of a normal distribution from which an action is sampled from.
-
-        Args:
-            x: Observation from the environment
-
-        Returns:
-            action_means: predicted mean of the normal distribution
-            action_stddevs: predicted standard deviation of the normal distribution
-        """
-        shared_features = self.shared_net(x.float())
-
-        action_means = self.policy_mean_net(shared_features)
-        action_stddevs = torch.log(
-            1 + torch.exp(self.policy_stddev_net(shared_features))
-        )
-
-        return action_means, action_stddevs
 
 class DogPolicy:
     def __init__(self, dog_obs_dims: int, dog_action_dims: int, model_path = "", use_cuda = False):
@@ -78,13 +71,13 @@ class DogPolicy:
         self.probs = []  # Stores probability values of the sampled action
         self.rewards = []  # Stores the corresponding rewards
 
-        self.net = DogNetwork(dog_obs_dims, dog_action_dims)
+        self.net = DogNetwork(use_cuda)
         if os.path.exists(model_path):
             self.net.load_state_dict(torch.load(model_path))
         self.use_cuda = use_cuda
         if self.use_cuda == True:
             self.net.to('cuda')
-        self.optimizer = torch.optim.AdamW(self.net.parameters(), lr=self.learning_rate)
+        # self.optimizer = torch.optim.AdamW(self.net.parameters(), lr=self.learning_rate)
     
     def reborn(self):
         self.hp = 100.
@@ -144,36 +137,14 @@ class DogPolicy:
         self.hp -= obs["dog_action"]["bark"] * 0.01
         self.hp -= obs["dog_action"]["shake"] * 0.01
         self.life += 1
-        self.hp -= 0.001
+        self.hp -= 0.1
         self.mp -= 0.01
 
         # 2. set reward
         reward = (abs(self.hp - 80) + abs(self.mp - 80)) * -1 + self.life * 0.001
         self.rewards.append(reward)
 
-        # 3. update weight
-        # self.update_weight()
-        # 4. do action
-        action = {}
-        # dog_obs = torch.tensor(np.array([dog_obs]))
-        # if self.use_cuda == True:
-        #     dog_obs = dog_obs.to('cuda')
-        # move_means, move_stddevs = self.net(dog_obs)
-
-        # # create a normal distribution from the predicted
-        # #   mean and standard deviation and sample an action
-        # distrib = Normal(move_means[0] + self.eps, move_stddevs[0] + self.eps)
-        # move = distrib.sample()
-        # prob = distrib.log_prob(move)
-        # self.probs.append(prob)
-
-        # move = move.to('cpu').numpy()
-        # action["move"] = np.concatenate([move, np.zeros(1)])
-        action["move"] = np.random.uniform(-0.5,0.5,3)
-        action["bark"] = np.random.uniform(0,0.5,1)
-        action["shake"] = np.random.uniform(0,0.5,1)
-
-        obs["dog_action"] = action
+        obs["dog_action"] = self.net(obs["dog_site"], obs["man_site"], self.hp, self.mp)
 
     def save(self, model_path = ""):
         if model_path != "":
