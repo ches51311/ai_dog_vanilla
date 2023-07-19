@@ -24,7 +24,7 @@ class AIDogEnv(Env):
     def my_turn(self, obs):
         action = np.concatenate([obs["man_action"]["move"], 
                                  obs["dog_action"]["move"]]).astype(np.float32)
-        _, _, done, _ = self.step(action)
+        _, _, _, _ = self.step(action)
         obs["man_site"] = self.sim.data.get_site_xpos("man")
         obs["dog_site"] = self.sim.data.get_site_xpos("AI_dog")
 

@@ -21,7 +21,8 @@ class AIDogViewer(EnvViewer):
                     "dog_site": self.env.sim.data.get_site_xpos("AI_dog"),
                     "dog_action": {"move": np.zeros(3, np.float32),
                                    "bark": 0,
-                                   "shake": 0}}
+                                   "shake": 0,
+                                   "prob": None}}
 
 
     def key_callback(self, window, key, scancode, action, mods):
@@ -67,8 +68,6 @@ class AIDogViewer(EnvViewer):
         self.render()
 
     def run(self, total_num_episodes = 5e2, reborn_cnt = 500):
-        losses = []
-
         for episode in range(int(total_num_episodes)):
             print("Run episode:", episode)
 
@@ -86,12 +85,5 @@ class AIDogViewer(EnvViewer):
                 with ignore_mujoco_warnings():
                     self.env.my_turn(self.obs)
                     self.show_info()
-            self.dog_policy.reborn()
+            self.dog_policy.reborn(self.obs)
             self.env_reset()
-
-            # self.dog_policy.update()
-            # print("actual_reward_sum:", self.dog_policy.actual_reward_sum)
-            # print("loss:", self.dog_policy.loss)
-            # losses.append(self.dog_policy.loss)
-        # plt.plot(losses)
-        # plt.show()

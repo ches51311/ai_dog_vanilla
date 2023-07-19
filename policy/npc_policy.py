@@ -30,7 +30,7 @@ class NPCPolicy:
            obs["dog_action"]["bark"] > 0.5:
             action["feed"] = True
             self.feed_cooldown = 100
-        if distance < 0.3 and self.touch_cooldown <= 0 and\
+        if distance < 0.3 and self.touch_cooldown <= 0 and \
             obs["dog_action"]["shake"] > 0.5:
             action["touch"] = True
             self.touch_cooldown = 100

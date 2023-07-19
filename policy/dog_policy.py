@@ -17,8 +17,11 @@ class DogNetwork(nn.Module):
         self.t1 = nn.Transformer(d_model = 3, nhead=1, num_encoder_layers = 1, num_decoder_layers = 1, dim_feedforward = 256)
         self.t2 = nn.Transformer(d_model = 1, nhead=1, num_encoder_layers = 1, num_decoder_layers = 1, dim_feedforward = 256)
         self.t3 = nn.Transformer(d_model = 8, nhead=1, num_encoder_layers = 1, num_decoder_layers = 1, dim_feedforward = 256)
-        self.l1 = nn.Linear(8, 3)
-        self.l2 = nn.Linear(8, 1)
+        self.l1 = nn.Sequential(nn.Linear(8, 3), nn.Sigmoid())
+        self.l2 = nn.Sequential(nn.Linear(8, 1), nn.Sigmoid())
+
+        self.recall = torch.zeros([1,100,8]).detach()
+        self.eps = 1e-6
 
         if use_cuda:
             self.t1 = self.t1.cuda()
@@ -26,6 +29,7 @@ class DogNetwork(nn.Module):
             self.t3 = self.t3.cuda()
             self.l1 = self.l1.cuda()
             self.l2 = self.l2.cuda()
+            self.recall = self.recall.cuda()
 
     def forward(self, dog_site, man_site, hp, mp) -> Tuple[torch.Tensor, torch.Tensor]:
         dog_site = torch.Tensor(dog_site).reshape([1,1,3])
@@ -42,23 +46,43 @@ class DogNetwork(nn.Module):
         man_site_t = self.t1(man_site, man_site)
         hp_t = self.t2(hp, hp)
         mp_t = self.t2(mp, mp)
+
         concat = torch.cat([dog_site_t, man_site_t, hp_t, mp_t], dim=2)
-        q = concat
-        result_move = self.t3(q,q).reshape([1,8])
-        result_move = self.l1(result_move).reshape([3]).cpu().detach().numpy()
-        result_bark = self.t3(q,q).reshape([1,8])
-        result_bark = self.l2(result_bark).reshape([1]).cpu().detach().numpy()
-        result_shake = self.t3(q,q).reshape([1,8])
-        result_shake = self.l2(result_shake).reshape([1]).cpu().detach().numpy()
+        self.recall = self.recall[:, :99].detach()
+        self.recall = torch.cat([concat, self.recall], dim = 1)
+        recall_t = self.t3(self.recall,self.recall)
+        recall_sum = torch.sum(recall_t, dim = 1)
 
-        return {"move": result_move, "bark": result_bark, "shake": result_shake}
+        result_move_mean = self.l1(recall_sum).reshape([3])
+        result_move_std = self.l1(recall_sum).reshape([3])
+        result_move_std = torch.log(1+torch.exp(result_move_std))
+        result_move_dist = Normal(result_move_mean + self.eps, result_move_std + self.eps)
+        result_move = result_move_dist.sample()
 
-    def backward(self):
-        pass
+        result_bark_mean = self.l2(recall_sum).reshape([1])
+        result_bark_std = self.l2(recall_sum).reshape([1])
+        result_bark_std = torch.log(1+torch.exp(result_bark_std))
+        result_bark_dist = Normal(result_bark_mean + self.eps, result_bark_std + self.eps)
+        result_bark = result_bark_dist.sample()
 
+        result_shake_mean = self.l2(recall_sum).reshape([1])
+        result_shake_std = self.l2(recall_sum).reshape([1])
+        result_shake_std = torch.log(1+torch.exp(result_shake_std))
+        result_shake_dist = Normal(result_shake_mean + self.eps, result_shake_std + self.eps)
+        result_shake = result_shake_dist.sample()
+
+        prob = torch.cat([result_move_dist.log_prob(result_move), 
+                          result_bark_dist.log_prob(result_bark),
+                          result_shake_dist.log_prob(result_shake)])
+
+        clip = lambda x: x if x > 0 else [0.]
+        return {"move": result_move.cpu().detach().numpy(),
+                "bark": clip(result_bark.cpu().detach().numpy())[0],
+                "shake": clip(result_shake.cpu().detach().numpy())[0],
+                "prob": prob}
 
 class DogPolicy:
-    def __init__(self, dog_obs_dims: int, dog_action_dims: int, model_path = "", use_cuda = False):
+    def __init__(self, model_path = "", use_cuda = False):
         # dog's hungry point & mood point
         self.hp = 100.
         self.mp = 100.
@@ -77,9 +101,13 @@ class DogPolicy:
         self.use_cuda = use_cuda
         if self.use_cuda == True:
             self.net.to('cuda')
-        # self.optimizer = torch.optim.AdamW(self.net.parameters(), lr=self.learning_rate)
+        self.optimizer = torch.optim.AdamW(self.net.parameters(), lr=self.learning_rate)
     
-    def reborn(self):
+    def reborn(self, obs):
+        obs["dog_action"] = {"move": np.zeros(3, np.float32),
+                             "bark": 0,
+                             "shake": 0,
+                             "prob": None}
         self.hp = 100.
         self.mp = 100.
         self.life = 0.
@@ -87,39 +115,8 @@ class DogPolicy:
     
     def death(self):
         return self.hp < 0
-
-    def update_weight(self):
-        # conditionally update weight
-
-        """Updates the policy network's weights."""
-        # self.rewards is storing distance
-        actual_rewards = []
-        for i in range(len(self.rewards)-1):
-            actual_rewards.append((self.rewards[i] - self.rewards[i+1])*1000/len(self.rewards))
-        # print("actual rewards:", actual_rewards)
-        self.actual_reward_sum = sum(actual_rewards)
-        deltas = torch.tensor(actual_rewards)
-
-        loss = 0
-        # minimize -1 * prob * reward obtained
-        for log_prob, delta in zip(self.probs, deltas):
-            loss += log_prob.mean() * delta * (-1)
-        if type(loss) == torch.Tensor:
-            self.loss = loss.item()
-            # Update the policy network
-            self.optimizer.zero_grad()
-            loss.backward()
-            self.optimizer.step()
-        else:
-            self.loss = loss
-
-        # Empty / zero out all episode-centric/related variables
-        self.probs = []
-        self.rewards = []
-
-
-    def my_turn(self, obs):
-        # 1. update hp & mp
+    
+    def metabolism(self, obs):
         distance = math.dist(obs["man_site"][:2], obs["dog_site"][:2])
         # man feed add hp
         if distance < 0.3 and obs["man_action"]["feed"] == True:
@@ -130,21 +127,48 @@ class DogPolicy:
         # man near add mp
         if distance < 0.3:
             self.mp += 0.001
-        # dog action influence hp/mp
+        # dog's action influence hp/mp
         dog_momentum = pow(pow(obs["dog_action"]["move"][0], 2) + \
-                           pow(obs["dog_action"]["move"][1], 2), 1/2) + obs["dog_action"]["move"][2]
-        self.hp -= dog_momentum * 0.01
+                           pow(obs["dog_action"]["move"][1], 2), 1/2) + abs(obs["dog_action"]["move"][2])
+        self.hp -= dog_momentum * 0.1
         self.hp -= obs["dog_action"]["bark"] * 0.01
         self.hp -= obs["dog_action"]["shake"] * 0.01
         self.life += 1
         self.hp -= 0.1
         self.mp -= 0.01
 
+    def update_weight(self):
+        if self.probs == []:
+            return
+        loss = 0
+        # minimize -1 * prob * reward obtained
+        for log_prob, reward in zip(self.probs, torch.tensor(self.rewards)):
+            if log_prob is None:
+                continue
+            loss += log_prob.mean() * reward * (-1)
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+
+        self.probs = []
+        self.rewards = []
+
+    def my_turn(self, obs):
+        # 1. update hp & mp
+        self.metabolism(obs)
+
         # 2. set reward
         reward = (abs(self.hp - 80) + abs(self.mp - 80)) * -1 + self.life * 0.001
         self.rewards.append(reward)
+        self.probs.append(obs["dog_action"]["prob"])
+    
+        # 3. update weight
+        if self.life % 100 == 0:
+            self.update_weight()
 
+        # 4. do action
         obs["dog_action"] = self.net(obs["dog_site"], obs["man_site"], self.hp, self.mp)
+
 
     def save(self, model_path = ""):
         if model_path != "":
