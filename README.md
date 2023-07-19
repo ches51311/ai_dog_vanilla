@@ -20,6 +20,5 @@ pip install -r requirements.txt
 pip install -e .
 cd -
 pip install -r requirements.txt
-pip install -e .
-./bin/examine.py
+python3 main.py
 ```
