@@ -13,7 +13,7 @@ def parse_arg():
     parser = argparse.ArgumentParser()
     parser.add_argument("--save_model", default = "dog.pt")
     parser.add_argument("--load_model", default = "dog.pt")
-    parser.add_argument("--use_cuda", default = True)
+    parser.add_argument("--no_cuda", action = "store_true")
     parser.add_argument("--times", default = 5e2)
     args = vars(parser.parse_args())
     return args
@@ -22,7 +22,7 @@ def main():
     args = parse_arg()
     env = AIDogEnv()
     env.reset()
-    dog_policy = DogPolicy(args["load_model"], args["use_cuda"])
+    dog_policy = DogPolicy(args["load_model"], args["no_cuda"])
     npc_policy = NPCPolicy()
     viewer = AIDogViewer(env, dog_policy, npc_policy)
     for _ in range(int(args["times"]/25)):

@@ -11,9 +11,9 @@ import math
 torch.manual_seed(3)
 
 class DogNetwork(nn.Module):
-    def __init__(self, use_cuda = False):
+    def __init__(self, no_cuda = True):
         super(DogNetwork,self).__init__()
-        self.use_cuda = use_cuda
+        self.no_cuda = no_cuda
         self.t1 = nn.TransformerEncoderLayer(d_model=3, nhead=1)
         self.t2 = nn.TransformerEncoderLayer(d_model=1, nhead=1)
         self.t3 = nn.TransformerEncoderLayer(d_model=8, nhead=1)
@@ -23,7 +23,7 @@ class DogNetwork(nn.Module):
         self.recall = torch.zeros([1,100,8]).detach()
         self.eps = 1e-6
 
-        if use_cuda:
+        if not no_cuda:
             self.t1 = self.t1.cuda()
             self.t2 = self.t2.cuda()
             self.t3 = self.t3.cuda()
@@ -36,7 +36,7 @@ class DogNetwork(nn.Module):
         man_site = torch.Tensor(man_site).reshape([1,1,3])
         hp = torch.Tensor([hp]).reshape([1,1,1])
         mp = torch.Tensor([mp]).reshape([1,1,1])
-        if self.use_cuda:
+        if not self.no_cuda:
             dog_site = dog_site.cuda()
             man_site = man_site.cuda()
             hp = hp.cuda()
@@ -82,7 +82,7 @@ class DogNetwork(nn.Module):
                 "prob": prob}
 
 class DogPolicy:
-    def __init__(self, model_path = "", use_cuda = False):
+    def __init__(self, model_path = "", no_cuda = True):
         # dog's hungry point & mood point
         self.hp = 100.
         self.mp = 100.
@@ -95,11 +95,11 @@ class DogPolicy:
         self.probs = []  # Stores probability values of the sampled action
         self.rewards = []  # Stores the corresponding rewards
 
-        self.net = DogNetwork(use_cuda)
+        self.net = DogNetwork(no_cuda)
         if os.path.exists(model_path):
             self.net.load_state_dict(torch.load(model_path))
-        self.use_cuda = use_cuda
-        if self.use_cuda == True:
+        self.no_cuda = no_cuda
+        if not self.no_cuda:
             self.net.to('cuda')
         self.optimizer = torch.optim.AdamW(self.net.parameters(), lr=self.learning_rate)
     
