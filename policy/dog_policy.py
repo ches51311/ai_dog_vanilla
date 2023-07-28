@@ -14,9 +14,9 @@ class DogNetwork(nn.Module):
     def __init__(self, use_cuda = False):
         super(DogNetwork,self).__init__()
         self.use_cuda = use_cuda
-        self.t1 = nn.Transformer(d_model = 3, nhead=1, num_encoder_layers = 1, num_decoder_layers = 1, dim_feedforward = 256)
-        self.t2 = nn.Transformer(d_model = 1, nhead=1, num_encoder_layers = 1, num_decoder_layers = 1, dim_feedforward = 256)
-        self.t3 = nn.Transformer(d_model = 8, nhead=1, num_encoder_layers = 1, num_decoder_layers = 1, dim_feedforward = 256)
+        self.t1 = nn.TransformerEncoderLayer(d_model=3, nhead=1)
+        self.t2 = nn.TransformerEncoderLayer(d_model=1, nhead=1)
+        self.t3 = nn.TransformerEncoderLayer(d_model=8, nhead=1)
         self.l1 = nn.Sequential(nn.Linear(8, 3), nn.Sigmoid())
         self.l2 = nn.Sequential(nn.Linear(8, 1), nn.Sigmoid())
 
@@ -42,15 +42,15 @@ class DogNetwork(nn.Module):
             hp = hp.cuda()
             mp = mp.cuda()
 
-        dog_site_t = self.t1(dog_site, dog_site)
-        man_site_t = self.t1(man_site, man_site)
-        hp_t = self.t2(hp, hp)
-        mp_t = self.t2(mp, mp)
+        dog_site_t = self.t1(dog_site)
+        man_site_t = self.t1(man_site)
+        hp_t = self.t2(hp)
+        mp_t = self.t2(mp)
 
         concat = torch.cat([dog_site_t, man_site_t, hp_t, mp_t], dim=2)
         self.recall = self.recall[:, :99].detach()
         self.recall = torch.cat([concat, self.recall], dim = 1)
-        recall_t = self.t3(self.recall,self.recall)
+        recall_t = self.t3(self.recall)
         recall_sum = torch.sum(recall_t, dim = 1)
 
         result_move_mean = self.l1(recall_sum).reshape([3])
