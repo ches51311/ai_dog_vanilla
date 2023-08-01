@@ -17,8 +17,8 @@ class DogNetwork(nn.Module):
         self.t1 = nn.TransformerEncoderLayer(d_model=3, nhead=1)
         self.t2 = nn.TransformerEncoderLayer(d_model=1, nhead=1)
         self.t3 = nn.TransformerEncoderLayer(d_model=8, nhead=1)
-        self.l1 = nn.Sequential(nn.Linear(8, 3), nn.Sigmoid())
-        self.l2 = nn.Sequential(nn.Linear(8, 1), nn.Sigmoid())
+        self.l1 = nn.Sequential(nn.Linear(8, 3), nn.Tanh())
+        self.l2 = nn.Sequential(nn.Linear(8, 1), nn.Tanh())
 
         self.recall = torch.zeros([1,100,8]).detach()
         self.eps = 1e-6
