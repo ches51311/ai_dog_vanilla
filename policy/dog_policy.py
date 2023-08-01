@@ -131,8 +131,8 @@ class DogPolicy:
         dog_momentum = pow(pow(obs["dog_action"]["move"][0], 2) + \
                            pow(obs["dog_action"]["move"][1], 2), 1/2) + abs(obs["dog_action"]["move"][2])
         self.hp -= dog_momentum * 0.1
-        self.hp -= obs["dog_action"]["bark"] * 0.01
-        self.hp -= obs["dog_action"]["shake"] * 0.01
+        self.hp -= abs(obs["dog_action"]["bark"]) * 0.01
+        self.hp -= abs(obs["dog_action"]["shake"]) * 0.01
         self.life += 1
         self.hp -= 0.1
         self.mp -= 0.01
