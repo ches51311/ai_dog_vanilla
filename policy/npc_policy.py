@@ -27,11 +27,11 @@ class NPCPolicy:
         distance = math.dist(obs["man_site"][:2], obs["dog_site"][:2])
         action = {"move": self.walk(obs["man_site"]), "feed": False, "touch": False}
         if distance < 0.3 and self.feed_cooldown <= 0 and \
-           obs["dog_action"]["bark"] > 0.5:
+           abs(obs["dog_action"]["bark"]) > 0.5:
             action["feed"] = True
             self.feed_cooldown = 100
         if distance < 0.3 and self.touch_cooldown <= 0 and \
-            obs["dog_action"]["shake"] > 0.5:
+            abs(obs["dog_action"]["shake"]) > 0.5:
             action["touch"] = True
             self.touch_cooldown = 100
         self.feed_cooldown = self.cnt_to_0(self.feed_cooldown)
