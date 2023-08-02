@@ -13,8 +13,9 @@ def parse_arg():
     parser = argparse.ArgumentParser()
     parser.add_argument("--save_model", default = "dog.pt")
     parser.add_argument("--load_model", default = "dog.pt")
+    parser.add_argument("--rewards", default = "rewards.json")
     parser.add_argument("--no_cuda", action = "store_true")
-    parser.add_argument("--times", default = 5e2)
+    parser.add_argument("--times", default = 5e2, type = int)
     args = vars(parser.parse_args())
     return args
 
@@ -22,12 +23,12 @@ def main():
     args = parse_arg()
     env = AIDogEnv()
     env.reset()
-    dog_policy = DogPolicy(args["load_model"], args["no_cuda"])
+    dog_policy = DogPolicy(args["load_model"], args["no_cuda"], True, args["save_model"])
     npc_policy = NPCPolicy()
     viewer = AIDogViewer(env, dog_policy, npc_policy)
-    for _ in range(int(args["times"]/25)):
-        viewer.run(25)
-        dog_policy.save(args["save_model"])
+    viewer.run(args["times"])
+    dog_policy.save(args["save_model"])
+    dog_policy.save_reward_history(args["rewards"])
 
 if __name__ == '__main__':
     logging.getLogger('').handlers = []

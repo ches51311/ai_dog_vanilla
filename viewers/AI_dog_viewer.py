@@ -69,7 +69,7 @@ class AIDogViewer(EnvViewer):
 
     def run(self, total_num_episodes = 5e2, reborn_cnt = 500):
         for episode in range(int(total_num_episodes)):
-            print("Run episode:", episode)
+            print("New life:", episode)
 
             while not self.dog_policy.death():
                 with ignore_mujoco_warnings():
@@ -80,6 +80,7 @@ class AIDogViewer(EnvViewer):
                         self.npc_policy.my_turn(self.obs)
                     self.env.my_turn(self.obs)
                     self.show_info()
+            print("Survive:", self.dog_policy.life)
             self.obs["dog_action"]["move"] = np.zeros(3, np.float32)
             for i in range(reborn_cnt):
                 with ignore_mujoco_warnings():
