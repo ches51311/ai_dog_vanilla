@@ -26,11 +26,11 @@ class NPCPolicy:
     def my_turn(self, obs):
         distance = math.dist(obs["man_site"][:2], obs["dog_site"][:2])
         action = {"move": self.walk(obs["man_site"]), "feed": False, "touch": False}
-        if distance < 0.3 and self.feed_cooldown <= 0 and \
+        if distance < 1 and self.feed_cooldown <= 0 and \
            abs(obs["dog_action"]["bark"]) > 0.5:
             action["feed"] = True
             self.feed_cooldown = 100
-        if distance < 0.3 and self.touch_cooldown <= 0 and \
+        if distance < 1 and self.touch_cooldown <= 0 and \
             abs(obs["dog_action"]["shake"]) > 0.5:
             action["touch"] = True
             self.touch_cooldown = 100

@@ -3,6 +3,7 @@ from mujoco_py import const, ignore_mujoco_warnings
 import glfw
 import matplotlib.pyplot as plt
 import numpy as np
+import time
 
 class AIDogViewer(EnvViewer):
     def __init__(self, env, dog_policy, npc_policy):
@@ -23,7 +24,6 @@ class AIDogViewer(EnvViewer):
                                    "bark": 0,
                                    "shake": 0,
                                    "prob": None}}
-
 
     def key_callback(self, window, key, scancode, action, mods):
         super().key_callback(window, key, scancode, action, mods)
@@ -61,30 +61,31 @@ class AIDogViewer(EnvViewer):
         self.add_overlay(const.GRID_BOTTOMRIGHT, "dog's move", str(self.obs["dog_action"]["move"]))
         self.add_overlay(const.GRID_BOTTOMRIGHT, "dog's bark", str(self.obs["dog_action"]["bark"]))
         self.add_overlay(const.GRID_BOTTOMRIGHT, "dog's shake", str(self.obs["dog_action"]["shake"]))
-        # self.add_overlay(const.GRID_BOTTOMRIGHT, "man_site", str(self.obs["man_site"]))
-        # self.add_overlay(const.GRID_BOTTOMRIGHT, "dog_site", str(self.obs["dog_site"]))
+        self.add_overlay(const.GRID_BOTTOMRIGHT, "man_site", str(self.obs["man_site"]))
+        self.add_overlay(const.GRID_BOTTOMRIGHT, "dog_site", str(self.obs["dog_site"]))
         # self.add_overlay(const.GRID_BOTTOMRIGHT, "man_action", str(self.obs["man_action"]))
         # self.add_overlay(const.GRID_BOTTOMRIGHT, "dog_action", str(self.obs["dog_action"]))
         self.render()
 
-    def run(self, total_num_episodes = 5e2, reborn_cnt = 500):
-        for episode in range(int(total_num_episodes)):
-            print("New life:", episode)
+    def run(self, times = 5e2):
+        episode = 0
+        cnt = 0
+        while self.dog_policy.update_cnt < times:
+            cnt += 1
+            with ignore_mujoco_warnings():
+                self.dog_policy.my_turn(self.obs)
+                if self.user_mode:
+                    self.obs["man_action"] = self.user_action
+                else:
+                    self.npc_policy.my_turn(self.obs)
+                self.env.my_turn(self.obs)
+                self.show_info()
+                if self.dog_policy.death() or cnt % 10000 == 0:
+                    print("Survive:", self.dog_policy.life)
+                    # time.sleep(1.5)
+                    self.dog_policy.reborn(self.obs)
+                    self.env_reset()
+                    episode += 1
+                    print("New life:", episode)
 
-            while not self.dog_policy.death():
-                with ignore_mujoco_warnings():
-                    self.dog_policy.my_turn(self.obs)
-                    if self.user_mode:
-                        self.obs["man_action"] = self.user_action
-                    else:
-                        self.npc_policy.my_turn(self.obs)
-                    self.env.my_turn(self.obs)
-                    self.show_info()
-            print("Survive:", self.dog_policy.life)
-            self.obs["dog_action"]["move"] = np.zeros(3, np.float32)
-            for i in range(reborn_cnt):
-                with ignore_mujoco_warnings():
-                    self.env.my_turn(self.obs)
-                    self.show_info()
-            self.dog_policy.reborn(self.obs)
-            self.env_reset()
+        self.dog_policy.plot_rewards()

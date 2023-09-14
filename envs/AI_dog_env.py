@@ -9,7 +9,9 @@ class AIDogEnv(Env):
                          horizon = horizon)
 
     def _get_sim(self, seed):
-        world_params = WorldParams(size=(4., 4., 2.5))
+        floor_length = 4.
+        floor_width = 4.
+        world_params = WorldParams(size=(floor_length, floor_width, 2.5))
         builder = WorldBuilder(world_params, seed)
         floor = Floor()
         builder.append(floor)
