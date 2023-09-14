@@ -405,7 +405,7 @@ class DogPolicy:
             distance = math.dist(obs["man_site"][:2], obs["dog_site"][:2])
             reward = (self.distance - distance) * 1000
             self.rewards.append(reward)
-        elif self.reward_type == "advance":
+        elif self.reward_type == "HP_MP":
             reward = (abs(self.hp - 80) + abs(self.mp - 80)) * -1 + min(5000, self.life * 0.001)
             self.rewards.append(reward)
         else:

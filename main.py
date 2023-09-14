@@ -12,7 +12,7 @@ def parse_arg():
     parser.add_argument("--enable_sai", action = "store_true")
     parser.add_argument("--net_type", default = "linear")
     parser.add_argument("--reward_type", default = "simple")
-    parser.add_argument("--times", default = 5e2, type = int)
+    parser.add_argument("--times", default = 5e3, type = int)
     args = vars(parser.parse_args())
     return args
 
