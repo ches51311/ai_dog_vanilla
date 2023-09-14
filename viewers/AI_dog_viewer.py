@@ -79,6 +79,8 @@ class AIDogViewer(EnvViewer):
                 else:
                     self.npc_policy.my_turn(self.obs)
                 self.env.my_turn(self.obs)
+                self.dog_policy.set_reward(self.obs)
+                self.dog_policy.update_weight()
                 self.show_info()
                 if self.dog_policy.death() or cnt % 10000 == 0:
                     print("Survive:", self.dog_policy.life)

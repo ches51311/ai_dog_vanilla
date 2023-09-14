@@ -113,7 +113,6 @@ class DogNetworkLinear(nn.Module):
     def __init__(self):
         super(DogNetworkLinear,self).__init__()
         in_dim = 9
-        # in_dim = 4
         out_dim = 5
         hidden_space1 = 128  # Nothing special with 16, feel free to change
         hidden_space2 = 128  # Nothing special with 32, feel free to change
@@ -142,7 +141,6 @@ class DogNetworkLinear(nn.Module):
         hp = (torch.Tensor([hp]).to(device).reshape([1]).clip(min=-20, max=120)-50)/70
         mp = (torch.Tensor([mp]).to(device).reshape([1]).clip(min=-50, max=150)-50)/100
         life = (torch.Tensor([life]).to(device).reshape([1]).clip(max=1000)-500)/500
-        # x = torch.cat([dog_site[:2], man_site[:2]], dim=0).reshape([1,4])
         x = torch.cat([dog_site, man_site, hp, mp, life], dim=0).reshape([1,9])
         shared_feature1 = self.shared_net1(x.float())
         shared_feature2 = self.shared_net2(shared_feature1)
@@ -162,9 +160,9 @@ class DogNetworkLinear(nn.Module):
                 "shake": action_clone[4],
                 "prob": prob}
 
-class DogNetwork3(nn.Module):
+class DogNetworkLinearRecall(nn.Module):
     def __init__(self):
-        super(DogNetwork3,self).__init__()
+        super(DogNetworkLinearRecall,self).__init__()
 
         in_dim = 9
         out_dim = 5
@@ -181,9 +179,6 @@ class DogNetwork3(nn.Module):
             nn.ReLU(),
         )
 
-        # self.positional_encoding = PostionalEncoding(d_model=hidden_space2, dropout=0)
-        # self.t = nn.TransformerEncoderLayer(d_model=hidden_space2, nhead=1, batch_first=True)
-
         self.recall_10ms = Recall(100, dim = hidden_space2) # [100,64]
         self.recall_sec = Recall(60, dim = hidden_space2)
         self.recall_min = Recall(60, dim = hidden_space2)
@@ -197,18 +192,6 @@ class DogNetwork3(nn.Module):
         self.policy_stddev_net = nn.Sequential(nn.Linear(345*hidden_space2, out_dim), nn.Tanh())
 
         self.eps = 1e-6
-
-        # if not no_cuda:
-        #     self.shared_net1 = self.shared_net1.cuda()
-        #     self.shared_net2 = self.shared_net2.cuda()
-        #     # self.t = self.t.cuda()
-        #     self.policy_mean_net = self.policy_mean_net.cuda()
-        #     self.policy_stddev_net = self.policy_stddev_net.cuda()
-        #     self.recall_10ms.data = self.recall_10ms.data.cuda()
-        #     self.recall_sec.data = self.recall_sec.data.cuda()
-        #     self.recall_min.data = self.recall_min.data.cuda()
-        #     self.recall_hr.data = self.recall_hr.data.cuda()
-        #     self.recall_day.data = self.recall_day.data.cuda()
 
     def update_recall(self, recall):
         recall_clone = recall.clone().detach()
@@ -224,17 +207,11 @@ class DogNetwork3(nn.Module):
 
 
     def forward(self, dog_site, man_site, hp, mp, life) -> Tuple[torch.Tensor, torch.Tensor]:
-        dog_site = torch.Tensor(dog_site).reshape([3])
-        man_site = torch.Tensor(man_site).reshape([3])
-        hp = (torch.Tensor([hp]).reshape([1]).clip(min=-20, max=120)-50)/70
-        mp = (torch.Tensor([mp]).reshape([1]).clip(min=-50, max=150)-50)/100
-        life = (torch.Tensor([life]).reshape([1]).clip(max=1000)-500)/500
-        # if not self.no_cuda:
-        #     dog_site = dog_site.cuda()
-        #     man_site = man_site.cuda()
-        #     hp = hp.cuda()
-        #     mp = mp.cuda()
-        #     life = life.cuda()
+        dog_site = torch.Tensor(dog_site).to(device).reshape([3])
+        man_site = torch.Tensor(man_site).to(device).reshape([3])
+        hp = (torch.Tensor([hp]).to(device).reshape([1]).clip(min=-20, max=120)-50)/70
+        mp = (torch.Tensor([mp]).to(device).reshape([1]).clip(min=-50, max=150)-50)/100
+        life = (torch.Tensor([life]).to(device).reshape([1]).clip(max=1000)-500)/500
         x = torch.cat([dog_site, man_site, hp, mp, life], dim=0).reshape([1,9])
         shared_feature1 = self.shared_net1(x.float())
         shared_feature2 = self.shared_net2(shared_feature1)
@@ -293,7 +270,7 @@ class DogPolicy:
         self.life = 0.
         # Hyperparameters
         self.learning_rate = 1e-4  # Learning rate for policy optimization
-        self.gamma = 0.99  # Discount factor
+        self.gamma = 0.8  # Discount factor
         self.eps = 1e-6  # small number for mathematical stability
 
         self.probs = []  # Stores probability values of the sampled action
@@ -302,6 +279,9 @@ class DogPolicy:
         if net_type == "linear":
             self.net = DogNetworkLinear().to(device)
             model_path = "dog_linear.pt"
+        elif net_type == "linear_recall":
+            self.net = DogNetworkLinearRecall().to(device)
+            model_path = "dog_linear_recall.pt"
         elif net_type == "transformer_recall":
             self.net = DogNetworkTransformerRecall().to(device)
             model_path = "dog_transformer_recall.pt"
@@ -361,18 +341,33 @@ class DogPolicy:
         self.mp = max(0., self.mp)
 
     def update_weight(self):
+        if len(self.rewards) < 100:
+            return
         self.rewards_mean_history.append(sum(self.rewards)/len(self.rewards))
         print(self.update_cnt , ":mean(rewards):", self.rewards_mean_history[-1])
         # print(self.rewards)
         if self.probs == []:
             return
 
+        running_g = 0
+        gs = []
+        for R in self.rewards[::-1]:
+            running_g = R + self.gamma * running_g
+            gs.insert(0, running_g)
+
+        deltas = torch.tensor(gs)
+
         loss = 0
         # minimize -1 * prob * reward obtained
-        for log_prob, reward in zip(self.probs, torch.tensor(self.rewards[1:])):
-            if log_prob is None:
-                continue
-            loss += log_prob.mean() * reward * (-1)
+        for log_prob, delta in zip(self.probs, deltas):
+            loss += log_prob.mean() * delta * (-1)
+
+        # loss = 0
+        # # minimize -1 * prob * reward obtained
+        # for log_prob, reward in zip(self.probs, torch.tensor(self.rewards[1:])):
+        #     if log_prob is None:
+        #         continue
+        #     loss += log_prob.mean() * reward * (-1)
         self.optimizer.zero_grad()
         loss.backward(retain_graph=True)
         self.optimizer.step()
@@ -385,39 +380,36 @@ class DogPolicy:
             self.save_log(self.log_path, show = False)
 
     def my_turn(self, obs):
-        # 1. do action
-        dog_action = self.net(obs["dog_site"], obs["man_site"], self.hp, self.mp, self.life)
-        sai_action = summan_sai(obs["dog_site"], obs["man_site"], self.hp, self.mp, self.life)
+        self.distance = math.dist(obs["man_site"][:2], obs["dog_site"][:2])
+        # do action
+        self.dog_action = self.net(obs["dog_site"], obs["man_site"], self.hp, self.mp, self.life)
+        self.sai_action = summan_sai(obs["dog_site"], obs["man_site"], self.hp, self.mp, self.life)
         if self.enable_sai:
-            obs["dog_action"] = sai_action
+            obs["dog_action"] = self.sai_action
         else:
-            obs["dog_action"] = dog_action
+            obs["dog_action"] = self.dog_action
 
-        # 2. update hp & mp
+        self.probs.append(self.dog_action["prob"])
+
+    def set_reward(self, obs):
+        # update hp & mp
         self.metabolism(obs)
 
-        # 3. set reward & prob
+        # set reward & prob
         if self.enable_sai:
-            reward = (sum(abs(dog_action["move"] - sai_action["move"])) +
-                      sum(abs(dog_action["bark"] - sai_action["bark"])) +
-                      sum(abs(dog_action["shake"] - sai_action["shake"]))) * -1
+            reward = (sum(abs(self.dog_action["move"] - self.sai_action["move"])) +
+                      sum(abs(self.dog_action["bark"] - self.sai_action["bark"])) +
+                      sum(abs(self.dog_action["shake"] - self.sai_action["shake"]))) * -1
             self.rewards.append(reward)
-            self.probs.append(dog_action["prob"])
-        elif self.reward_type == "simple":
+        elif self.reward_type == "simple":            
             distance = math.dist(obs["man_site"][:2], obs["dog_site"][:2])
-            if self.prev_distance is not None:
-                reward = (self.prev_distance - distance) * 1000
-                self.rewards.append(reward)
-                self.probs.append(dog_action["prob"])
-            self.prev_distance = distance
+            reward = (self.distance - distance) * 1000
+            self.rewards.append(reward)
         elif self.reward_type == "advance":
             reward = (abs(self.hp - 80) + abs(self.mp - 80)) * -1 + min(5000, self.life * 0.001)
             self.rewards.append(reward)
-            self.probs.append(dog_action["prob"])
-
-        # 4. update weight
-        if len(self.rewards) > 100:
-            self.update_weight()
+        else:
+            assert(0 and "reward_type illegal")
 
     def save(self, model_path = ""):
         if model_path != "":
