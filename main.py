@@ -9,7 +9,6 @@ from viewers.AI_dog_viewer import AIDogViewer
 
 def parse_arg():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--enable_sai", action = "store_true")
     parser.add_argument("--net_type", default = "linear")
     parser.add_argument("--reward_type", default = "simple")
     parser.add_argument("--times", default = 5e3, type = int)
@@ -20,7 +19,7 @@ def main():
     args = parse_arg()
     env = AIDogEnv()
     env.reset()
-    dog_policy = DogPolicy(args["net_type"], args["reward_type"], args["enable_sai"])
+    dog_policy = DogPolicy(args["net_type"], args["reward_type"])
     npc_policy = NPCPolicy()
     viewer = AIDogViewer(env, dog_policy, npc_policy)
     viewer.run(args["times"])

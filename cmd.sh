@@ -2,3 +2,10 @@
 python3 main.py --net_type=linear --reward_type=simple --times=5000
 # should converage about 2500 iter
 python3 main.py --net_type=linear --reward_type=HP_MP --times=5000
+
+# should converage about 1000 iter 
+python3 main.py --net_type=linear_recall --reward_type=sai --times=5000
+# should converage about 2500 iter 
+python3 main.py --net_type=linear_recall --reward_type=simple --times=5000
+# half success
+python3 main.py --net_type=linear_recall --reward_type=HP_MP --times=10000

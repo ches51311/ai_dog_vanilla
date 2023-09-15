@@ -164,32 +164,37 @@ class DogNetworkLinearRecall(nn.Module):
     def __init__(self):
         super(DogNetworkLinearRecall,self).__init__()
 
-        in_dim = 9
-        out_dim = 5
-        hidden_space1 = 128  # Nothing special with 16, feel free to change
-        hidden_space2 = 128  # Nothing special with 32, feel free to change
+        self.in_dim = 9
+        self.out_dim = 5
+        self.hidden_space = 128
+        self.recall_dim = self.in_dim + self.out_dim
+        self.recall_len = 345
 
         # Shared Network
         self.shared_net1 = nn.Sequential(
-            nn.Linear(in_dim, hidden_space1),
+            nn.Linear(self.recall_dim, self.hidden_space),
             nn.ReLU()
         )
         self.shared_net2 = nn.Sequential(
-            nn.Linear(hidden_space1, hidden_space2),
+            nn.Linear(self.hidden_space, self.hidden_space),
+            nn.ReLU(),
+        )
+        self.shared_net3 = nn.Sequential(
+            nn.Linear(self.recall_len, 1),
             nn.ReLU(),
         )
 
-        self.recall_10ms = Recall(100, dim = hidden_space2) # [100,64]
-        self.recall_sec = Recall(60, dim = hidden_space2)
-        self.recall_min = Recall(60, dim = hidden_space2)
-        self.recall_hr = Recall(24, dim = hidden_space2)
-        self.recall_day = Recall(100, dim = hidden_space2)
+        self.recall_10ms = Recall(100, dim = self.recall_dim)
+        self.recall_sec = Recall(60, dim = self.recall_dim)
+        self.recall_min = Recall(60, dim = self.recall_dim)
+        self.recall_hr = Recall(24, dim = self.recall_dim)
+        self.recall_day = Recall(100, dim = self.recall_dim)
 
         # Policy Mean specific Linear Layer
-        self.policy_mean_net = nn.Sequential(nn.Linear(345*hidden_space2, out_dim), nn.Tanh())
+        self.policy_mean_net = nn.Sequential(nn.Linear(self.hidden_space, self.out_dim), nn.Tanh())
 
         # Policy Std Dev specific Linear Layer
-        self.policy_stddev_net = nn.Sequential(nn.Linear(345*hidden_space2, out_dim), nn.Tanh())
+        self.policy_stddev_net = nn.Sequential(nn.Linear(self.hidden_space, self.out_dim), nn.Tanh())
 
         self.eps = 1e-6
 
@@ -212,31 +217,34 @@ class DogNetworkLinearRecall(nn.Module):
         hp = (torch.Tensor([hp]).to(device).reshape([1]).clip(min=-20, max=120)-50)/70
         mp = (torch.Tensor([mp]).to(device).reshape([1]).clip(min=-50, max=150)-50)/100
         life = (torch.Tensor([life]).to(device).reshape([1]).clip(max=1000)-500)/500
-        x = torch.cat([dog_site, man_site, hp, mp, life], dim=0).reshape([1,9])
-        shared_feature1 = self.shared_net1(x.float())
+        x = torch.cat([dog_site, man_site, hp, mp, life], dim=0).reshape([1,self.in_dim]).float()
+        cur_recall = nn.functional.pad(input=x,  pad=(0,self.out_dim), mode='constant', value=0).reshape([1,self.recall_dim])
+        concat = torch.cat([cur_recall, self.recall_10ms.data, self.recall_sec.data,self.recall_min.data,
+                             self.recall_hr.data, self.recall_day.data], dim = 0).reshape([self.recall_len, self.recall_dim])
+        shared_feature1 = self.shared_net1(concat) # [345, 128]
         shared_feature2 = self.shared_net2(shared_feature1)
-        shared_features = shared_feature1 + shared_feature2
-
-        concat = torch.cat([shared_features, self.recall_10ms.data, self.recall_sec.data,self.recall_min.data,
-                             self.recall_hr.data, self.recall_day.data], dim = 0).reshape([1,345*128])#.transpose(2,1)
-
-
-        action_means = self.policy_mean_net(concat)
+        residual = shared_feature1 + shared_feature2
+        transpose1 = residual.transpose(1,0) # [128, 345]
+        shared_feature3 = self.shared_net3(transpose1) # [128, 1]
+        transpose2 = shared_feature3.transpose(1,0) # [1, 128]
+        action_means = self.policy_mean_net(transpose2) # [1, 5]
         action_stddevs = torch.log(
-            1 + torch.exp(self.policy_stddev_net(concat))
+            1 + torch.exp(self.policy_stddev_net(transpose2))
         )
         distrib = Normal(action_means[0] + self.eps, action_stddevs[0] + self.eps)
         action = distrib.sample()
         prob = distrib.log_prob(action)
 
-        self.update_recall(shared_features)
+        cur_recall = cur_recall.reshape([1,self.recall_dim]).clone()
+        cur_recall[:,self.in_dim:] = action.reshape([1,self.out_dim])
+
+        self.update_recall(cur_recall)
 
         action_clone = action.cpu().clone().detach().numpy()
         return {"move": action_clone[:3],
                 "bark": action_clone[3],
                 "shake": action_clone[4],
                 "prob": prob}
-
 
 def summan_sai(dog_site, man_site, hp, mp, life) -> Tuple[torch.Tensor, torch.Tensor]:
     result = {}
@@ -263,7 +271,7 @@ def summan_sai(dog_site, man_site, hp, mp, life) -> Tuple[torch.Tensor, torch.Te
 
 
 class DogPolicy:
-    def __init__(self, net_type = "linear", reward_type = "simple", enable_sai = False):
+    def __init__(self, net_type = "linear", reward_type = "simple"):
         # dog's hungry point & mood point
         self.hp = 100.
         self.mp = 100.
@@ -289,12 +297,10 @@ class DogPolicy:
             assert(0 and "net_type illegal")
         if os.path.exists(model_path):
             self.net.load_state_dict(torch.load(model_path))
-        self.enable_sai = enable_sai
         self.reward_type = reward_type
         self.optimizer = torch.optim.AdamW(self.net.parameters(), lr=self.learning_rate)
         self.save_path = model_path
         self.log_path = "log.json"
-        self.prev_distance = None
         self.rewards_mean_history = []
         self.update_cnt = 0
 
@@ -303,12 +309,11 @@ class DogPolicy:
                              "bark": 0,
                              "shake": 0,
                              "prob": None}
+        if self.reward_type == "HP_MP" and self.death():
+            self.rewards.append(-4444.+min(2000, self.life))
         self.hp = 100.
         self.mp = 100.
-        if self.reward_type not in ["simple"]:
-            self.rewards.append(-4444.+min(2000, self.life))
         self.life = 0.
-        self.prev_distance = None
     
     def death(self):
         return self.hp < 0
@@ -384,10 +389,7 @@ class DogPolicy:
         # do action
         self.dog_action = self.net(obs["dog_site"], obs["man_site"], self.hp, self.mp, self.life)
         self.sai_action = summan_sai(obs["dog_site"], obs["man_site"], self.hp, self.mp, self.life)
-        if self.enable_sai:
-            obs["dog_action"] = self.sai_action
-        else:
-            obs["dog_action"] = self.dog_action
+        obs["dog_action"] = self.dog_action
 
         self.probs.append(self.dog_action["prob"])
 
@@ -396,7 +398,7 @@ class DogPolicy:
         self.metabolism(obs)
 
         # set reward & prob
-        if self.enable_sai:
+        if self.reward_type == "sai":
             reward = (sum(abs(self.dog_action["move"] - self.sai_action["move"])) +
                       sum(abs(self.dog_action["bark"] - self.sai_action["bark"])) +
                       sum(abs(self.dog_action["shake"] - self.sai_action["shake"]))) * -1
