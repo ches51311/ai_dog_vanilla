@@ -51,6 +51,7 @@ class DogNetworkTransformerRecall(nn.Module):
         self.in_dim = 9
         self.out_dim = 5
         self.recall_dim = self.in_dim + self.out_dim
+        self.recall_len = 345
         self.positional_encoding = PostionalEncoding(d_model=self.recall_dim, dropout=0)
         self.t = nn.Transformer(d_model=self.recall_dim, nhead=1, num_encoder_layers=2, num_decoder_layers=2, dim_feedforward=512, batch_first=True)
 
@@ -80,8 +81,8 @@ class DogNetworkTransformerRecall(nn.Module):
     def forward(self, dog_site, man_site, hp, mp, life) -> Tuple[torch.Tensor, torch.Tensor]:
         dog_site = torch.Tensor(dog_site).to(device).reshape([3])
         man_site = torch.Tensor(man_site).to(device).reshape([3])
-        hp = (torch.Tensor([hp]).to(device).reshape([1]).clip(min=-20, max=120)-50)/70
-        mp = (torch.Tensor([mp]).to(device).reshape([1]).clip(min=-50, max=150)-50)/100
+        hp = (torch.Tensor([hp]).to(device).reshape([1]).clip(min=-20, max=200)-90)/110
+        mp = (torch.Tensor([mp]).to(device).reshape([1]).clip(min=0, max=200)-100)/100
         life = (torch.Tensor([life]).to(device).reshape([1]).clip(max=10000)-5000)/5000
         concat = torch.cat([dog_site, man_site, hp, mp, life], dim=0).reshape([self.in_dim])
         cur_recall = nn.functional.pad(input=concat,  pad=(0,self.out_dim), mode='constant', value=0).reshape([1,1,self.recall_dim])
@@ -89,8 +90,9 @@ class DogNetworkTransformerRecall(nn.Module):
         recalls = torch.cat([self.recall_10ms.data, self.recall_sec.data,self.recall_min.data,
                              self.recall_hr.data, self.recall_day.data], dim = 0).reshape([1,-1,self.recall_dim])
         recalls_pe = self.positional_encoding(recalls)
-        out = self.t(src=cur_recall, tgt=recalls_pe)#.reshape([1, self.recall_dim])
-        out = out[:,-1,:].reshape([1, self.recall_dim])
+        # out = self.t(src=cur_recall, tgt=recalls_pe)#.reshape([1, self.recall_dim])
+        out = self.t(src=recalls_pe, tgt=cur_recall).reshape([1, self.recall_dim])
+        # out = out[:,-1,:].reshape([1, self.recall_dim])
         result_means = self.means(out).reshape([self.out_dim])
         result_stds = torch.log(1+torch.exp(self.stds(out))).reshape([self.out_dim])
         result_dist = Normal(result_means + self.eps, result_stds + self.eps)
@@ -216,7 +218,7 @@ class DogNetworkLinearRecall(nn.Module):
         man_site = torch.Tensor(man_site).to(device).reshape([3])
         hp = (torch.Tensor([hp]).to(device).reshape([1]).clip(min=-20, max=120)-50)/70
         mp = (torch.Tensor([mp]).to(device).reshape([1]).clip(min=-50, max=150)-50)/100
-        life = (torch.Tensor([life]).to(device).reshape([1]).clip(max=1000)-500)/500
+        life = (torch.Tensor([life]).to(device).reshape([1]).clip(max=10000)-5000)/5000
         x = torch.cat([dog_site, man_site, hp, mp, life], dim=0).reshape([1,self.in_dim]).float()
         cur_recall = nn.functional.pad(input=x,  pad=(0,self.out_dim), mode='constant', value=0).reshape([1,self.recall_dim])
         concat = torch.cat([cur_recall, self.recall_10ms.data, self.recall_sec.data,self.recall_min.data,
@@ -310,7 +312,7 @@ class DogPolicy:
                              "shake": 0,
                              "prob": None}
         if self.reward_type == "HP_MP" and self.death():
-            self.rewards.append(-4444.+min(2000, self.life))
+            self.rewards.append(-44444.+min(20000, self.life))
         self.hp = 100.
         self.mp = 100.
         self.life = 0.
@@ -323,11 +325,13 @@ class DogPolicy:
         # man feed add hp
         if distance < 1 and obs["man_action"]["feed"] == True:
             print("feed!!")
-            self.hp += 20
+            self.hp = min(200, self.hp + 20)
+            # self.hp += 20
         # man touch add mp
         if distance < 1 and obs["man_action"]["touch"] == True:
             print("touch!!")
-            self.mp += 20
+            self.mp = min(200, self.mp + 20)
+            # self.mp += 20
         # # man near add mp
         # if distance < 0.5:
         #     print("near!!")
@@ -338,8 +342,8 @@ class DogPolicy:
         dog_momentum = pow(pow(obs["dog_action"]["move"][0], 2) + \
                            pow(obs["dog_action"]["move"][1], 2), 1/2) + abs(obs["dog_action"]["move"][2])
         self.hp -= dog_momentum * 0.01
-        self.hp -= abs(obs["dog_action"]["bark"]) * 0.01
-        self.hp -= abs(obs["dog_action"]["shake"]) * 0.01
+        self.hp -= abs(obs["dog_action"]["bark"]) * 0.05
+        self.hp -= abs(obs["dog_action"]["shake"]) * 0.05
         self.life += 1
         self.hp -= 0.01
         self.mp -= 0.1
@@ -408,7 +412,7 @@ class DogPolicy:
             reward = (self.distance - distance) * 1000
             self.rewards.append(reward)
         elif self.reward_type == "HP_MP":
-            reward = (abs(self.hp - 80) + abs(self.mp - 80)) * -1 + min(5000, self.life * 0.001)
+            reward = (abs(self.hp - 80) + abs(self.mp - 80)) * -1 + min(5000, self.life * 0.03)
             self.rewards.append(reward)
         else:
             assert(0 and "reward_type illegal")
