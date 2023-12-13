@@ -248,6 +248,29 @@ class DogNetworkLinearRecall(nn.Module):
                 "shake": action_clone[4],
                 "prob": prob}
 
+class Critic(nn.Module):
+    '''
+    estimate rewards sum of 100 steps 
+    '''
+    def __init__(self):
+        super(Critic,self).__init__()
+        self.in_dim = 9
+        self.hidden_layer = 128
+        self.out_dim = 1
+        self.net = nn.Sequential(nn.Linear(self.in_dim, self.hidden_layer),
+                                 nn.Linear(self.hidden_layer,self.out_dim ))
+        
+    def forward(self, dog_site, man_site, hp, mp, life) -> Tuple[torch.Tensor, torch.Tensor]:
+        dog_site = torch.Tensor(dog_site).to(device).reshape([3])
+        man_site = torch.Tensor(man_site).to(device).reshape([3])
+        hp = (torch.Tensor([hp]).to(device).reshape([1]).clip(min=-20, max=120)-50)/70
+        mp = (torch.Tensor([mp]).to(device).reshape([1]).clip(min=-50, max=150)-50)/100
+        life = (torch.Tensor([life]).to(device).reshape([1]).clip(max=10000)-5000)/5000
+        x = torch.cat([dog_site, man_site, hp, mp, life], dim=0).reshape([1,self.in_dim]).float()
+        return self.net(x)
+
+
+
 def summan_sai(dog_site, man_site, hp, mp, life) -> Tuple[torch.Tensor, torch.Tensor]:
     result = {}
     # keep close to npc
@@ -278,13 +301,18 @@ class DogPolicy:
         self.hp = 100.
         self.mp = 100.
         self.life = 0.
+        self.prev_hp = self.hp
+        self.prev_mp = self.mp
+        self.prev_life = self.life
+
         # Hyperparameters
         self.learning_rate = 1e-4  # Learning rate for policy optimization
         self.gamma = 0.8  # Discount factor
         self.eps = 1e-6  # small number for mathematical stability
 
         self.probs = []  # Stores probability values of the sampled action
-        self.rewards = []  # Stores the corresponding rewards
+        self.actual_rewards = []  # Stores the corresponding rewards
+        self.estimated_rewards = []  # Stores the corresponding rewards
 
         if net_type == "linear":
             self.net = DogNetworkLinear().to(device)
@@ -297,22 +325,34 @@ class DogPolicy:
             model_path = "dog_transformer_recall.pt"
         else:
             assert(0 and "net_type illegal")
+        critic_path = "critic.pt"
         if os.path.exists(model_path):
             self.net.load_state_dict(torch.load(model_path))
+        self.critic = Critic().to(device)
+        if os.path.exists(critic_path):
+            self.critic.load_state_dict(torch.load(critic_path))
         self.reward_type = reward_type
         self.optimizer = torch.optim.AdamW(self.net.parameters(), lr=self.learning_rate)
+        self.critic_optimizer = torch.optim.AdamW(self.critic.parameters(), lr=self.learning_rate)
         self.save_path = model_path
+        self.save_critic_path = critic_path
         self.log_path = "log.json"
-        self.rewards_mean_history = []
+        self.actual_rewards_mean_history = []
+        self.estimated_rewards_mean_history = []
         self.update_cnt = 0
 
-    def reborn(self, obs):
+    def reborn(self, prev_obs, obs):
         obs["dog_action"] = {"move": np.zeros(3, np.float32),
                              "bark": 0,
                              "shake": 0,
                              "prob": None}
         if self.reward_type == "HP_MP" and self.death():
-            self.rewards.append(-44444.+min(20000, self.life))
+            self.actual_rewards.append(-44444.+min(20000, self.life))
+            self.prev_critic_reward = self.critic(prev_obs["dog_site"], prev_obs["man_site"], self.prev_hp, self.prev_mp, self.prev_life)
+            self.critic_reward = self.critic(obs["dog_site"], obs["man_site"], self.hp, self.mp, self.life)
+            estimated_reward = self.actual_rewards[-1] + self.critic_reward*0.99 - self.prev_critic_reward
+            self.estimated_rewards.append(estimated_reward.cpu().detach().numpy().flatten()[0])
+
         self.hp = 100.
         self.mp = 100.
         self.life = 0.
@@ -321,6 +361,10 @@ class DogPolicy:
         return self.hp < 0
     
     def metabolism(self, obs):
+        self.prev_hp = self.hp
+        self.prev_mp = self.mp
+        self.prev_life = self.life
+
         distance = math.dist(obs["man_site"][:2], obs["dog_site"][:2])
         # man feed add hp
         if distance < 1 and obs["man_action"]["feed"] == True:
@@ -350,17 +394,19 @@ class DogPolicy:
         self.mp = max(0., self.mp)
 
     def update_weight(self):
-        if len(self.rewards) < 100:
+        if len(self.actual_rewards) < 100:
             return
-        self.rewards_mean_history.append(sum(self.rewards)/len(self.rewards))
-        print(self.update_cnt , ":mean(rewards):", self.rewards_mean_history[-1])
+        self.actual_rewards_mean_history.append(sum(self.actual_rewards)/len(self.actual_rewards))
+        self.estimated_rewards_mean_history.append(sum(self.estimated_rewards)/len(self.estimated_rewards))
+        print(self.update_cnt , ":mean(actual_rewards):", self.actual_rewards_mean_history[-1])
+        print(self.update_cnt , ":mean(estimated_rewards):", self.estimated_rewards_mean_history[-1])
         # print(self.rewards)
         if self.probs == []:
             return
 
         running_g = 0
         gs = []
-        for R in self.rewards[::-1]:
+        for R in self.estimated_rewards[::-1]:
             running_g = R + self.gamma * running_g
             gs.insert(0, running_g)
 
@@ -380,12 +426,19 @@ class DogPolicy:
         self.optimizer.zero_grad()
         loss.backward(retain_graph=True)
         self.optimizer.step()
+        actual_reward = sum(self.actual_rewards)
+        critic_loss = abs(self.critic_reward - actual_reward)
+        print("critic_loss:", critic_loss)
+        critic_loss.backward()
+        self.critic_optimizer.step()
 
         self.probs = []
-        self.rewards = []
+        self.actual_rewards = []
+        self.estimated_rewards = []
         self.update_cnt += 1
-        if len(self.rewards_mean_history) % 500 == 0:
+        if len(self.actual_rewards_mean_history) % 500 == 0:
             self.save(self.save_path)
+            self.save_critic(self.save_critic_path)
             self.save_log(self.log_path, show = False)
 
     def my_turn(self, obs):
@@ -397,7 +450,7 @@ class DogPolicy:
 
         self.probs.append(self.dog_action["prob"])
 
-    def set_reward(self, obs):
+    def set_reward(self, prev_obs, obs):
         # update hp & mp
         self.metabolism(obs)
 
@@ -406,27 +459,38 @@ class DogPolicy:
             reward = (sum(abs(self.dog_action["move"] - self.sai_action["move"])) +
                       sum(abs(self.dog_action["bark"] - self.sai_action["bark"])) +
                       sum(abs(self.dog_action["shake"] - self.sai_action["shake"]))) * -1
-            self.rewards.append(reward)
+            self.actual_rewards.append(reward)
         elif self.reward_type == "simple":            
             distance = math.dist(obs["man_site"][:2], obs["dog_site"][:2])
             reward = (self.distance - distance) * 1000
-            self.rewards.append(reward)
+            self.actual_rewards.append(reward)
         elif self.reward_type == "HP_MP":
             reward = (abs(self.hp - 80) + abs(self.mp - 80)) * -1 + min(5000, self.life * 0.03)
-            self.rewards.append(reward)
+            self.actual_rewards.append(reward)
         else:
             assert(0 and "reward_type illegal")
+        self.prev_critic_reward = self.critic(prev_obs["dog_site"], prev_obs["man_site"], self.prev_hp, self.prev_mp, self.prev_life)
+        self.critic_reward = self.critic(obs["dog_site"], obs["man_site"], self.hp, self.mp, self.life)
+        estimated_reward = self.actual_rewards[-1] + self.critic_reward*0.99 - self.prev_critic_reward
+        self.estimated_rewards.append(estimated_reward.cpu().detach().numpy().flatten()[0])
 
     def save(self, model_path = ""):
         if model_path != "":
             torch.save(self.net.state_dict(), model_path)
-    
+
+    def save_critic(self, model_path = ""):
+        if model_path != "":
+            torch.save(self.critic.state_dict(), model_path)
+
+
     def save_log(self, path = "log.json", show = True):
         with open(path, "w") as f:
-            json.dump({"rewards_mean_history": self.rewards_mean_history}, f)
-        plt.plot(self.rewards_mean_history)
-        plt.savefig(path + ".png")
+            json.dump({"rewards_mean_history": self.actual_rewards_mean_history}, f)
+        plt.plot(self.actual_rewards_mean_history)
+        plt.savefig(path + "_actual.png")
+        plt.plot(self.estimated_rewards_mean_history)
+        plt.savefig(path + "_estimated.png")
 
     def plot_rewards(self):
-        plt.plot(self.rewards_mean_history)
+        plt.plot(self.actual_rewards_mean_history)
         plt.show()

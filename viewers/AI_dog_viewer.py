@@ -4,6 +4,7 @@ import glfw
 import matplotlib.pyplot as plt
 import numpy as np
 import time
+import copy
 
 class AIDogViewer(EnvViewer):
     def __init__(self, env, dog_policy, npc_policy):
@@ -24,6 +25,7 @@ class AIDogViewer(EnvViewer):
                                    "bark": 0,
                                    "shake": 0,
                                    "prob": None}}
+        self.prev_obs = copy.copy(self.obs)
 
     def key_callback(self, window, key, scancode, action, mods):
         super().key_callback(window, key, scancode, action, mods)
@@ -79,15 +81,16 @@ class AIDogViewer(EnvViewer):
                 else:
                     self.npc_policy.my_turn(self.obs)
                 self.env.my_turn(self.obs)
-                self.dog_policy.set_reward(self.obs)
+                self.dog_policy.set_reward(self.prev_obs, self.obs)
                 self.dog_policy.update_weight()
                 self.show_info()
                 if self.dog_policy.death() or cnt % 10000 == 0:
                     print("Survive:", self.dog_policy.life)
                     # time.sleep(1.5)
-                    self.dog_policy.reborn(self.obs)
+                    self.dog_policy.reborn(self.prev_obs, self.obs)
                     self.env_reset()
                     episode += 1
                     print("New life:", episode)
+                self.prev_obs = copy.copy(self.obs)
 
         self.dog_policy.plot_rewards()
