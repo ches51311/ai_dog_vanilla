@@ -7,8 +7,10 @@ import time
 import copy
 
 class AIDogViewer(EnvViewer):
-    def __init__(self, env, dog_policy, npc_policy):
+    def __init__(self, env, dog_env, dog_reward, dog_policy, npc_policy):
         super().__init__(env = env)
+        self.dog_env = dog_env
+        self.dog_reward = dog_reward
         self.dog_policy = dog_policy
         self.npc_policy = npc_policy
         self.seed[0] = 0
@@ -16,8 +18,8 @@ class AIDogViewer(EnvViewer):
         self.user_action = {"move": np.zeros(3, np.float32),
                             "feed": False,
                             "touch": False}
-        self.obs = {"man_site": self.env.sim.data.get_site_xpos("man"),
-                    "man_action": {"move": np.zeros(3, np.float32),
+        self.obs = {"breeder_site": self.env.sim.data.get_site_xpos("breeder"),
+                    "breeder_action": {"move": np.zeros(3, np.float32),
                                    "feed": False,
                                    "touch": False},
                     "dog_site": self.env.sim.data.get_site_xpos("AI_dog"),
@@ -57,40 +59,43 @@ class AIDogViewer(EnvViewer):
 
     def show_info(self):
         self.add_overlay(const.GRID_TOPRIGHT, "Reset env; (current seed: {})".format(self.seed), "N - next / P - previous ")
-        self.add_overlay(const.GRID_TOPRIGHT, "dog's death:", str(self.dog_policy.death()))
-        self.add_overlay(const.GRID_TOPRIGHT, "dog's Hungry Point:", str(self.dog_policy.hp))
-        self.add_overlay(const.GRID_TOPRIGHT, "dog's Mood Point:", str(self.dog_policy.mp))
+        self.add_overlay(const.GRID_TOPRIGHT, "dog's state:", str(self.dog_env.state))
+        self.add_overlay(const.GRID_TOPRIGHT, "dog's Hungry Point:", str(self.dog_env.hp))
+        self.add_overlay(const.GRID_TOPRIGHT, "dog's Mood Point:", str(self.dog_env.mp))
         self.add_overlay(const.GRID_BOTTOMRIGHT, "dog's move", str(self.obs["dog_action"]["move"]))
         self.add_overlay(const.GRID_BOTTOMRIGHT, "dog's bark", str(self.obs["dog_action"]["bark"]))
         self.add_overlay(const.GRID_BOTTOMRIGHT, "dog's shake", str(self.obs["dog_action"]["shake"]))
-        self.add_overlay(const.GRID_BOTTOMRIGHT, "man_site", str(self.obs["man_site"]))
+        self.add_overlay(const.GRID_BOTTOMRIGHT, "breeder_site", str(self.obs["breeder_site"]))
         self.add_overlay(const.GRID_BOTTOMRIGHT, "dog_site", str(self.obs["dog_site"]))
-        # self.add_overlay(const.GRID_BOTTOMRIGHT, "man_action", str(self.obs["man_action"]))
+        # self.add_overlay(const.GRID_BOTTOMRIGHT, "breeder_action", str(self.obs["breeder_action"]))
         # self.add_overlay(const.GRID_BOTTOMRIGHT, "dog_action", str(self.obs["dog_action"]))
         self.render()
 
     def run(self, times = 5e2):
         episode = 0
         cnt = 0
-        while self.dog_policy.update_cnt < times:
+        while self.dog_policy.update_weight_cnt < times:
             cnt += 1
             with ignore_mujoco_warnings():
-                self.dog_policy.my_turn(self.obs)
-                if self.user_mode:
-                    self.obs["man_action"] = self.user_action
-                else:
-                    self.npc_policy.my_turn(self.obs)
-                self.env.my_turn(self.obs)
-                self.dog_policy.set_reward(self.prev_obs, self.obs)
-                self.dog_policy.update_weight()
-                self.show_info()
-                if self.dog_policy.death() or cnt % 10000 == 0:
-                    print("Survive:", self.dog_policy.life)
-                    # time.sleep(1.5)
-                    self.dog_policy.reborn(self.prev_obs, self.obs)
+                if self.dog_env.state == "just_reborn":
                     self.env_reset()
                     episode += 1
                     print("New life:", episode)
-                self.prev_obs = copy.copy(self.obs)
 
-        self.dog_policy.plot_rewards()
+                # Action: both Breeder & Dog do the action
+                self.dog_policy.my_turn(self.obs)
+                if self.user_mode:
+                    self.obs["breeder_action"] = self.user_action
+                else:
+                    self.npc_policy.my_turn(self.obs)
+                # State: both update the sandbox environment and dog's physiological function
+                self.env.my_turn(self.obs)
+                self.dog_env.my_turn(self.obs)
+                # Reward: According to the current state, score dog'S reward
+                self.dog_reward.my_turn(self.obs)
+                if self.dog_env.state == "just_death":
+                    print("Survive:", self.dog_env.life)
+
+                self.show_info()
+
+        self.dog_reward.plot_rewards()
