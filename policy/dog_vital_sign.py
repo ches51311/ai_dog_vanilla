@@ -2,7 +2,8 @@ import math
 import numpy as np
 
 class DogVitalSign:
-    def __init__(self) -> None:
+    def __init__(self, reward_type) -> None:
+        self.reward_type = reward_type
         self.reborn_time = 100
         self.reborn_cnt = 0
         self.born()
@@ -40,7 +41,11 @@ class DogVitalSign:
 
     def my_turn(self, obs):
         if self.state not in ["just_death", "death"]:
-            self.metabolism(obs)
+            if self.reward_type == "simple":
+                # Never die
+                pass
+            else:
+                self.metabolism(obs)
         self.update_state()
 
     def metabolism(self, obs):

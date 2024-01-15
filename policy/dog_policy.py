@@ -85,7 +85,7 @@ class DogPolicy:
 
     def update_weight(self):
         probs = [action["prob"] for action in self.saved_actions]
-        rewards = self.dog_reward.get_rewards()[-len(probs):]
+        rewards = self.dog_reward.get_rewards()#[-len(probs):]
 
         running_g = 0
         gs = []
@@ -107,9 +107,11 @@ class DogPolicy:
 
         self.saved_actions = []
 
+
         self.update_weight_cnt += 1
         if self.update_weight_cnt % 500 == 0:
             self.save_dog(self.dog_model_path)
+            # self.dog_reward.save_rewards()
 
     def save_dog(self, model_path = ""):
         os.makedirs(os.path.dirname(model_path), exist_ok=True)

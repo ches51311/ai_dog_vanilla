@@ -71,19 +71,23 @@ class DogNetworkBase(nn.Module):
         self.action_size = 5 # x, y, rotate, bark, shake
         self.eps = 1e-6
 
-        self.probs = []  # Stores probability values of the sampled action
-        self.actual_rewards = []  # Stores the corresponding rewards
-        self.estimated_rewards = []  # Stores the corresponding rewards
-
         # mean layer
         self.mean_net = nn.Sequential(nn.Linear(backbone_output_size, self.action_size), nn.Tanh())
         # std layer
         self.std_net = nn.Sequential(nn.Linear(backbone_output_size, self.action_size), nn.Tanh())
 
     def concat_states(self, dog_site, breeder_site, hp, mp, life):
+        hp = (torch.Tensor([hp]).clip(min=-20, max=200)-90)/110
+        mp = (torch.Tensor([mp]).clip(min=0, max=200)-100)/100
+        life = (torch.Tensor([life]).clip(max=10000)-5000)/5000
         states = list(dog_site) + list(breeder_site) + [hp] + [mp] + [life]
         states = torch.tensor(states).reshape(self.state_size)
         return states.to(torch.float32)
+
+        # states = list(dog_site) + list(breeder_site) + [hp] + [mp] + [life]
+        # states = torch.tensor(states).reshape(self.state_size)
+        # return states.to(torch.float32)
+
 
     def forward_after_backbone(self, backbone_out):
         action_means = self.mean_net(backbone_out)
@@ -101,12 +105,28 @@ class DogNetworkLinear(DogNetworkBase):
         self.backbone_output_size = 128
         super().__init__(backbone_output_size = self.backbone_output_size)
 
-        self.backbone = nn.Sequential(
+        # self.backbone = nn.Sequential(
+        #     nn.Linear(self.state_size, self.hidden_feature_size),
+        #     nn.ReLU(),
+        #     nn.Linear(self.hidden_feature_size, self.backbone_output_size),
+        #     nn.ReLU(),
+        # )
+        self.block1 = nn.Sequential(
             nn.Linear(self.state_size, self.hidden_feature_size),
-            nn.ReLU(),
-            nn.Linear(self.hidden_feature_size, self.backbone_output_size),
-            nn.ReLU(),
+            nn.ReLU()
         )
+
+        self.block2 = nn.Sequential(
+            nn.Linear(self.hidden_feature_size, self.backbone_output_size),
+            nn.ReLU()
+        )
+
+
+    def backbone(self, states):
+        hidden_feature1 = self.block1(states) # [345, 128]
+        hidden_feature2 = self.block2(hidden_feature1)
+        residual = hidden_feature1 + hidden_feature2
+        return residual.flatten()
 
     def forward(self, states):
         backbone_out = self.backbone(states).flatten()
