@@ -71,14 +71,18 @@ class AIDogViewer(EnvViewer):
         # self.add_overlay(const.GRID_BOTTOMRIGHT, "dog_action", str(self.obs["dog_action"]))
         self.render()
 
-    def run(self, times = 5e2):
+    def run(self, times = 5e2, max_reset = 10000):
         episode = 0
         cnt = 0
-        while self.dog_policy.update_weight_cnt < times:
+        while self.dog_policy.dog_updated_cnt < times:
             cnt += 1
             with ignore_mujoco_warnings():
+                if cnt > max_reset:
+                    self.env_reset()
+                    cnt = 0
                 if self.dog_env.state == "just_reborn":
                     self.env_reset()
+                    cnt = 0
                     episode += 1
                     print("New life:", episode)
 
