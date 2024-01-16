@@ -12,15 +12,17 @@ class DogReward:
     def __init__(self, dog_vital_sign,
                  reward_type = "simple",
                  use_critic = False,
+                 dog_updated_freq = 100,
                  critic_updated_freq = 100,
                  critic_saved_freq = 50000,
                  log_reward_mean_N = 100,
                  log_saved_freq = 50000,
-                 reward_max_len = 100,
+                 reward_max_len = 200,
                  saved_dir = os.path.join(os.getcwd(), "models")) -> None:
         self.dog_vital_sign = dog_vital_sign
         self.reward_type = reward_type
         self.use_critic = use_critic
+        self.dog_updated_freq = dog_updated_freq
         self.critic_updated_freq = critic_updated_freq
         self.critic_saved_freq = critic_saved_freq
         self.log_reward_mean_N = log_reward_mean_N
@@ -43,6 +45,7 @@ class DogReward:
         self.log_rewards_means = []
 
     def _set_model(self):
+        # critic net is to estimated the rewards sum per dog_updated_freq
         self.critic_model_path = os.path.join(self.saved_dir, f"critic_{self.reward_type}.pth")
         if os.path.exists(self.critic_model_path):
             self.critic_net = torch.load(self.critic_model_path)
@@ -51,6 +54,7 @@ class DogReward:
         self.learning_rate = 1e-4
         self.critic_optimizer = torch.optim.AdamW(self.critic_net.parameters(), lr=self.learning_rate) # dog_reward
         self.critic_loss_fn = torch.nn.SmoothL1Loss()
+        self.critic_sum_rewards = []
 
         self.critic_net.train()
 
@@ -68,7 +72,6 @@ class DogReward:
 
         self._set_raw_reward(obs)
         self._set_reward(obs)
-        self.prev_obs = obs
 
         if self.my_turn_cnt % self.log_reward_mean_N == 1 and self.my_turn_cnt > 1:
             self._set_rewards_mean()
@@ -77,6 +80,8 @@ class DogReward:
 
         self.raw_rewards = self.raw_rewards[-self.reward_max_len:]
         self.rewards = self.rewards[-self.reward_max_len:]
+        if self.use_critic:
+            self.critic_sum_rewards = self.critic_sum_rewards[-self.reward_max_len:]
 
     def _set_raw_reward(self, obs):
         if self.dog_vital_sign.state == "just_death":
@@ -102,15 +107,20 @@ class DogReward:
         if self.use_critic == False:
             reward = raw_reward
         else:
-            if self.prev_obs is None:
-                self.prev_obs = obs
-            prev_states = self.critic_net.concat_states(self.prev_obs["dog_site"], self.prev_obs["breeder_site"], \
-                                                self.dog_vital_sign.prev_hp, self.dog_vital_sign.prev_mp, self.dog_vital_sign.prev_life)
-            self.prev_critic_reward = self.critic_net(prev_states.to(device))
             states = self.critic_net.concat_states(obs["dog_site"], obs["breeder_site"], \
                                             self.dog_vital_sign.hp, self.dog_vital_sign.mp, self.dog_vital_sign.life)
-            self.critic_reward = self.critic_net(states.to(device))
-            reward = raw_reward + self.critic_reward * 0.99 - self.prev_critic_reward
+            critic_sum_reward = self.critic_net(states.to(device))
+            if len(self.critic_sum_rewards) != 0:
+                prev_critic_sum_reward = self.critic_sum_rewards[-1]
+                factor = ((self.dog_updated_freq-1) / self.dog_updated_freq)
+                # prev_critic_sum_reward: previous step's estimated sum
+                # raw_reward + critic_sum_reward * factor: this step's estimated sum, replace one step's reward as raw_reward
+                # so minus one step (i.e., mul factor)
+                reward = raw_reward + critic_sum_reward * factor - prev_critic_sum_reward
+            else:
+                reward = raw_reward
+            self.critic_sum_rewards.append(critic_sum_reward)
+
 
         self.rewards.append(reward)
 
@@ -125,9 +135,23 @@ class DogReward:
         self.rewards_mean_cnt += 1
 
     def _update_critic_weight(self):
-        input = torch.tensor(self.rewards, requires_grad=True)
-        target = torch.tensor(self.raw_rewards)
-        critic_loss = self.critic_loss_fn(input, target).sum()
+        min_require_len = self.dog_updated_freq + self.critic_updated_freq
+        if len(self.raw_rewards) < min_require_len:
+            return
+        critic_sum_rewards_for_update = []
+        raw_sum_rewards_for_update = []
+        critic_sum_start_site = len(self.critic_sum_rewards) - (self.dog_updated_freq + self.critic_updated_freq)
+        raw_start_site = len(self.raw_rewards) - (self.dog_updated_freq + self.critic_updated_freq)
+        # breakpoint()
+        for i in range(self.critic_updated_freq):
+            critic_sum_reward = self.critic_sum_rewards[critic_sum_start_site + i]
+            raw_sum_reward = sum(self.raw_rewards[raw_start_site+i:raw_start_site+i+self.dog_updated_freq])
+            critic_sum_rewards_for_update.append(critic_sum_reward)
+            raw_sum_rewards_for_update.append(raw_sum_reward)
+
+        input = torch.tensor(critic_sum_rewards_for_update, requires_grad=True)
+        target = torch.tensor(raw_sum_rewards_for_update)
+        critic_loss = self.critic_loss_fn(input, target)
         print("critic_loss:", critic_loss)
         self.critic_optimizer.zero_grad()
         critic_loss.backward()
@@ -144,7 +168,7 @@ class DogReward:
             return self.rewards[-nums:]
 
     def plot_rewards(self):
-        plt.plot(self.rewards_means)
+        plt.plot(self.log_rewards_means)
         plt.show()
 
     def save_critic(self, model_path):

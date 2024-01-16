@@ -33,7 +33,7 @@ class RecallChunk:
                     self.recall_hr.nums + \
                     self.recall_day.nums
     def save(self, recall):
-        recall_clone = recall.clone().detach()
+        recall_clone = recall.cpu().clone().detach()
         recall_clone = recall_clone.reshape([1, self.dim])
         self.recall_10ms.save(recall_clone)
         if self.recall_10ms.mature():
@@ -105,12 +105,6 @@ class DogNetworkLinear(DogNetworkBase):
         self.backbone_output_size = 128
         super().__init__(backbone_output_size = self.backbone_output_size)
 
-        # self.backbone = nn.Sequential(
-        #     nn.Linear(self.state_size, self.hidden_feature_size),
-        #     nn.ReLU(),
-        #     nn.Linear(self.hidden_feature_size, self.backbone_output_size),
-        #     nn.ReLU(),
-        # )
         self.block1 = nn.Sequential(
             nn.Linear(self.state_size, self.hidden_feature_size),
             nn.ReLU()
@@ -187,7 +181,7 @@ class DogNetworkLinearRecall(DogNetworkBase):
 
 class DogNetworkTransformerRecall(DogNetworkBase):
     def __init__(self):
-        self.recall_feature_size = self.state_size + self.action_size # 14
+        self.recall_feature_size = 14 # self.state_size + self.action_size
         #TODO: backbone output size 14 is to small, need to adjust the
         #transformer to let it 128
         self.backbone_output_size = self.recall_feature_size
@@ -207,13 +201,18 @@ class DogNetworkTransformerRecall(DogNetworkBase):
         self.zero_action = torch.zeros(self.action_size)
     
     def backbone(self, recalls, flash_recall):
+        recalls = recalls.reshape(1, -1, self.recall_feature_size)
+        flash_recall = flash_recall.reshape(1, -1, self.recall_feature_size)
         recalls_pe = self.positional_encoding(recalls)
         backbone_out = self.transformer(src=recalls_pe, tgt=flash_recall)
         return backbone_out.flatten()
 
     def forward(self, states):
-        flash_recall_before_act = torch.cat(states, self.zero_action)
-        recalls = torch.cat([flash_recall_before_act, self.saved_recalls.data]) # [345, 14]
+        device = states.device
+        flash_recall_before_act = torch.cat([states, self.zero_action.to(device)])
+        # recalls = torch.cat([torch.unsqueeze(flash_recall_before_act, dim=0),
+        #                      self.saved_recalls.data.to(device)]) # [345, 14]
+        recalls = self.saved_recalls.data.to(device)
         backbone_out = self.backbone(recalls, flash_recall_before_act)
         action, prob = self.forward_after_backbone(backbone_out)
 
@@ -233,11 +232,29 @@ class Critic(DogNetworkBase):
     def __init__(self):
         super().__init__(1)
         self.hidden_feature_size = 128
-        self.backbone = nn.Sequential(
+        # self.backbone = nn.Sequential(
+        #     nn.Linear(self.state_size, self.hidden_feature_size),
+        #     nn.ReLU(),
+        #     nn.Linear(self.hidden_feature_size, 1)
+        # )
+
+        self.block1 = nn.Sequential(
             nn.Linear(self.state_size, self.hidden_feature_size),
-            nn.ReLU(),
-            nn.Linear(self.hidden_feature_size, 1)
+            nn.ReLU()
         )
-        
+
+        self.block2 = nn.Sequential(
+            nn.Linear(self.hidden_feature_size, self.hidden_feature_size),
+            nn.ReLU()
+        )
+
+        self.block3 = nn.Sequential(
+            nn.Linear(self.hidden_feature_size, 1),
+        )
+
     def forward(self, states):
-        return self.backbone(states).flatten()
+        hidden_feature1 = self.block1(states) # [345, 128]
+        hidden_feature2 = self.block2(hidden_feature1)
+        residual = hidden_feature1 + hidden_feature2
+        result = self.block3(residual)
+        return result.flatten()

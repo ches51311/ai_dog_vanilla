@@ -72,7 +72,7 @@ class AIDogViewer(EnvViewer):
         self.render()
 
     def run(self, times = 5e2, max_reset = 10000):
-        episode = 0
+        reincarnation = 0
         cnt = 0
         while self.dog_policy.dog_updated_cnt < times:
             cnt += 1
@@ -83,8 +83,8 @@ class AIDogViewer(EnvViewer):
                 if self.dog_env.state == "just_reborn":
                     self.env_reset()
                     cnt = 0
-                    episode += 1
-                    print("New life:", episode)
+                    reincarnation += 1
+                    print("New life:", reincarnation)
 
                 # Action: both Breeder & Dog do the action
                 self.dog_policy.my_turn(self.obs)

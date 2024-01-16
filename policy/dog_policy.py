@@ -88,7 +88,6 @@ class DogPolicy:
             self._update_dog_weight()
         if self.my_turn_cnt % self.dog_saved_freq == 1 and self.my_turn_cnt > 1:
             self.save_dog(self.dog_model_path)
-        # if len(self.saved_actions) == self._update_dog_weight_time:
 
         states = self.dog_net.concat_states(obs["dog_site"], obs["breeder_site"], \
                                     dog_vital_sign.hp, dog_vital_sign.mp, dog_vital_sign.life)
@@ -102,8 +101,6 @@ class DogPolicy:
         probs = [action["prob"] for action in self.saved_actions[-self.dog_updated_freq:]]
         assert(len(probs) == self.dog_updated_freq)
         rewards = self.dog_reward.get_last_rewards(len(probs))
-
-        # rewards = self.dog_reward.get_rewards()#[-len(probs):]
 
         running_g = 0
         gs = []
